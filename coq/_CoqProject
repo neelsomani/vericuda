@@ -8,3 +8,4 @@ Translate.v
 Soundness.v
 examples/saxpy_gen.v
 examples/atomic_flag_gen.v
+examples/vecadd_gen.v
