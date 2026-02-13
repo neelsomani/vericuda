@@ -155,6 +155,26 @@ class BarrierStmt(Stmt):
         return "M.SBarrier"
 
 
+@dataclasses.dataclass
+class IfStmt(Stmt):
+    cond: Expr
+    then_branch: List[Stmt]
+    else_branch: List[Stmt]
+
+    def to_coq(self) -> str:
+        return (
+            f"M.SIf ({self.cond.to_coq()}) {render_stmt_block(self.then_branch)} "
+            f"{render_stmt_block(self.else_branch)}"
+        )
+
+
+def render_stmt_block(stmts: Sequence[Stmt]) -> str:
+    if not stmts:
+        return "[]"
+    inner = ";\n      ".join(stmt.to_coq() for stmt in stmts)
+    return f"[ {inner} ]"
+
+
 # ---------------------------------------------------------------------------
 # Type plumbing
 
@@ -243,6 +263,54 @@ RE_ORDERING_SET = re.compile(
         ident=IDENT
     )
 )
+RE_BLOCK_START = re.compile(r"^\s*(bb\d+):\s*\{")
+RE_SWITCH = re.compile(r"switchInt\((?P<cond>.+)\)\s*->\s*\[(?P<arms>.+)\];")
+RE_GOTO = re.compile(r"goto\s*->\s*(?P<label>bb\d+);")
+RE_RETURN_TERM = re.compile(r"return;")
+RE_ASSERT = re.compile(r"assert\(.*\)\s*->\s*\[success:\s*(?P<label>bb\d+)")
+RE_CALL_RETURN = re.compile(r"->\s*\[return:\s*(?P<label>bb\d+)")
+
+
+@dataclasses.dataclass
+class TranslatorState:
+    # A class to hold state during translation, such as derived expressions for pointer arithmetic, pointer target types, and ordering bindings.
+    derived_exprs: Dict[str, Expr]
+    ptr_targets: Dict[str, str]
+    ordering_bindings: Dict[str, str]
+
+    def copy(self) -> "TranslatorState":
+        return TranslatorState(
+            derived_exprs=dict(self.derived_exprs),
+            ptr_targets=dict(self.ptr_targets),
+            ordering_bindings=dict(self.ordering_bindings),
+        )
+
+
+@dataclasses.dataclass
+class Block:
+    label: str
+    lines: List[str]
+
+
+class Terminator:
+    pass
+
+
+@dataclasses.dataclass
+class GotoTerm(Terminator):
+    target: str
+
+
+@dataclasses.dataclass
+class ReturnTerm(Terminator):
+    pass
+
+
+@dataclasses.dataclass
+class SwitchTerm(Terminator):
+    cond: Expr
+    true_label: str
+    false_label: str
 
 
 def split_args(arg_str: str) -> List[str]:
@@ -371,24 +439,178 @@ def ordering_from_token(token: str, bindings: Dict[str, str]) -> str:
     return normalize_ordering(token)
 
 
-def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr], Dict[str, str]]:
-    types = collect_types(lines)
-    ptr_targets = infer_pointer_targets(types)
-    derived_exprs: Dict[str, Expr] = {}
-    stmts: List[Stmt] = []
-    ordering_bindings: Dict[str, str] = {}
+def strip_control_suffix(line: str) -> str:
+    # Remove control flow suffixes like "-> [return: bbN]" to get the underlying statement.
+    cleaned = line
+    if "->" in cleaned:
+        cleaned = cleaned.split("->", 1)[0]
+    cleaned = cleaned.rstrip()
+    if cleaned and not cleaned.endswith(";"):
+        cleaned += ";"
+    return cleaned
 
+
+def split_blocks(lines: Sequence[str]) -> Dict[str, Block]:
+    # Split lines into basic blocks. Each block starts with "bbN: {" and ends with "}".
+    blocks: Dict[str, Block] = {}
+    current_label: Optional[str] = None
+    current_lines: List[str] = []
     for raw in lines:
-        line = raw.strip()
-        if not line or line.startswith("//"):
+        m_start = RE_BLOCK_START.match(raw)
+        if m_start:
+            if current_label is not None:
+                blocks[current_label] = Block(label=current_label, lines=current_lines)
+            current_label = m_start.group(1)
+            current_lines = []
             continue
-
-        m_ord = RE_ORDERING_SET.match(line)
-        if m_ord:
-            ordering_bindings[m_ord.group("dst")] = m_ord.group("ord")
+        if current_label is not None and raw.strip() == "}":
+            blocks[current_label] = Block(label=current_label, lines=current_lines)
+            current_label = None
+            current_lines = []
             continue
+        if current_label is not None:
+            current_lines.append(raw)
+    if current_label is not None:
+        blocks[current_label] = Block(label=current_label, lines=current_lines)
+    return blocks
 
-        # Track pointer expressions first so later loads/stores can reuse them.
+
+def parse_switch_targets(arms: str) -> Tuple[str, str]:
+    # Parse switchInt terminator arms like "0: bb1, 1: bb2" or "false: bb1, true: bb2" and return the false/true labels.
+    false_label: Optional[str] = None
+    true_label: Optional[str] = None
+    for entry in arms.split(","):
+        entry = entry.strip()
+        if not entry or ":" not in entry:
+            continue
+        key, dest = entry.split(":", 1)
+        key = key.strip().lower()
+        dest = dest.strip()
+        target = dest.split()[0]
+        if key in {"0", "false"}:
+            false_label = target
+        elif key in {"1", "true", "otherwise"}:
+            true_label = target
+        else:
+            if false_label is None:
+                false_label = target
+            else:
+                true_label = target
+    if false_label is None or true_label is None:
+        raise ValueError("switchInt requires exactly two branches")
+    return false_label, true_label
+
+
+class MIRTranslator:
+    def __init__(self, lines: Sequence[str]):
+        self.lines = lines
+        self.types = collect_types(lines)
+        self.blocks = split_blocks(lines)
+
+    def translate(self) -> List[Stmt]:
+        # Start translating from the entry block (bb0 if it exists, otherwise the first block) and follow the control flow until we exhaust reachable blocks or hit unsupported patterns. Collect statements along the way.
+        if not self.blocks:
+            return []
+        entry = "bb0" if "bb0" in self.blocks else next(iter(self.blocks))
+        state = TranslatorState(
+            derived_exprs={},
+            ptr_targets=infer_pointer_targets(self.types),
+            ordering_bindings={},
+        )
+        stmts, _, _ = self._translate_path(entry, state, stop_label=None)
+        return stmts
+
+    def _translate_path(
+        self,
+        label: Optional[str],
+        state: TranslatorState,
+        stop_label: Optional[str],
+        visited: Optional[set] = None,
+    ) -> Tuple[List[Stmt], TranslatorState, Optional[str]]:
+        # Recursively translate a path of blocks starting from `label` until we hit a terminator that returns or the `stop_label`. Then return the collected statements, final state, and the label that caused us to stop (if any).
+        if visited is None:
+            visited = set()
+        stmts: List[Stmt] = []
+        current = label
+        while current is not None:
+            if stop_label and current == stop_label:
+                return stmts, state, stop_label
+            if current in visited:
+                # raise ValueError(f"loops not supported (stuck in {current})")
+                print(f"warning: loops not supported (stuck in {current})", file=sys.stderr)
+                return stmts, state, None
+            visited.add(current)
+            block = self.blocks.get(current)
+            if block is None:
+                raise ValueError(f"missing block {current}")
+            block_stmts, state, terminator = self._process_block(block, state)
+            stmts.extend(block_stmts)
+            if isinstance(terminator, ReturnTerm):
+                return stmts, state, None
+            if isinstance(terminator, GotoTerm):
+                current = terminator.target
+                continue
+            if isinstance(terminator, SwitchTerm):
+                true_state = state.copy()
+                true_stmts, _, _ = self._translate_path(
+                    terminator.true_label,
+                    true_state,
+                    stop_label=terminator.false_label,
+                    visited=set(),
+                )
+                stmts.append(IfStmt(cond=terminator.cond, then_branch=true_stmts, else_branch=[]))
+                current = terminator.false_label
+                continue
+            raise ValueError("unreachable terminator")
+        return stmts, state, None
+
+    def _process_block(
+        self, block: Block, state: TranslatorState
+    ) -> Tuple[List[Stmt], TranslatorState, Terminator]:
+        # Process the statements in a block and identify the terminator. Collect statements along the way and update the state.
+        stmts: List[Stmt] = []
+        terminator: Optional[Terminator] = None
+        for raw in block.lines:
+            line = raw.strip()
+            if not line or line.startswith("//"):
+                continue
+
+            m_switch = RE_SWITCH.match(line)
+            if m_switch:
+                cond_expr = parse_operand(m_switch.group("cond"))
+                false_label, true_label = parse_switch_targets(m_switch.group("arms"))
+                terminator = SwitchTerm(cond=cond_expr, true_label=true_label, false_label=false_label)
+                continue
+
+            if RE_RETURN_TERM.match(line):
+                terminator = ReturnTerm()
+                continue
+
+            m_goto = RE_GOTO.search(line)
+            if m_goto:
+                terminator = GotoTerm(target=m_goto.group("label"))
+                continue
+
+            m_assert = RE_ASSERT.search(line)
+            if m_assert:
+                terminator = GotoTerm(target=m_assert.group("label"))
+                continue
+
+            m_ord = RE_ORDERING_SET.match(line)
+            if m_ord:
+                state.ordering_bindings[m_ord.group("dst")] = m_ord.group("ord")
+                continue
+
+            stmt_line = strip_control_suffix(line)
+            stmt = self._parse_statement(stmt_line, state)
+            if stmt: stmts.append(stmt)
+
+            m_call = RE_CALL_RETURN.search(line)
+            if m_call: terminator = GotoTerm(target=m_call.group("label"))
+
+        return stmts, state, terminator
+
+    def _parse_statement(self, line: str, state: TranslatorState) -> Optional[Stmt]:
         m_ptr_add = RE_PTR_ADD.match(line)
         if m_ptr_add:
             dst = m_ptr_add.group("dst")
@@ -396,80 +618,68 @@ def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr],
             if len(args) >= 2:
                 base_expr = parse_operand(args[0])
                 offset_expr = parse_operand(args[1])
-                derived_exprs[dst] = PtrAdd(base_expr, offset_expr)
-                if isinstance(base_expr, Var) and base_expr.name in ptr_targets:
-                    ptr_targets[dst] = ptr_targets[base_expr.name]
-            continue
+                state.derived_exprs[dst] = PtrAdd(base_expr, offset_expr)
+                if isinstance(base_expr, Var) and base_expr.name in state.ptr_targets:
+                    state.ptr_targets[dst] = state.ptr_targets[base_expr.name]
+            return None
 
         m_ref = RE_REF_DEREF.match(line)
         if m_ref:
             dst = m_ref.group("dst")
             src = m_ref.group("src")
-            derived_exprs[dst] = Var(src)
-            if src in ptr_targets:
-                ptr_targets[dst] = ptr_targets[src]
-            continue
+            state.derived_exprs[dst] = Var(src)
+            if src in state.ptr_targets:
+                state.ptr_targets[dst] = state.ptr_targets[src]
+            return None
 
         m_load = RE_LOAD.match(line)
         if m_load:
             dst = m_load.group("dst")
             ptr = m_load.group("ptr")
-            ty_info = types.get(dst)
+            ty_info = self.types.get(dst)
             mir_ty = ty_info.mir_ty if ty_info and ty_info.mir_ty else "TyU32"
-            stmts.append(LoadStmt(dst=dst, addr=expr_for_pointer(ptr, derived_exprs), ty=mir_ty))
-            continue
+            return LoadStmt(dst=dst, addr=expr_for_pointer(ptr, state.derived_exprs), ty=mir_ty)
 
         m_store = RE_STORE.match(line)
         if m_store:
             ptr = m_store.group("ptr")
             rhs = m_store.group("rhs")
-            addr_expr = expr_for_pointer(ptr, derived_exprs)
-            elem_ty = ptr_targets.get(ptr, "TyU32")
-            stmts.append(
-                StoreStmt(
-                    addr=addr_expr,
-                    value=parse_expr(rhs.rstrip(";")),
-                    ty=elem_ty,
-                )
+            addr_expr = expr_for_pointer(ptr, state.derived_exprs)
+            elem_ty = state.ptr_targets.get(ptr, "TyU32")
+            return StoreStmt(
+                addr=addr_expr,
+                value=parse_expr(rhs.rstrip(";")),
+                ty=elem_ty,
             )
-            continue
 
         m_at_load = RE_ATOMIC_LOAD.match(line)
         if m_at_load:
             dst = m_at_load.group("dst")
             args = split_args(m_at_load.group("args"))
-            if len(args) < 2 or ordering_from_token(args[-1], ordering_bindings) != "Acquire":
+            if len(args) < 2 or ordering_from_token(args[-1], state.ordering_bindings) != "Acquire":
                 print(f"error: unsupported atomic load ordering in line: {line}", file=sys.stderr)
                 sys.exit(2)
             addr_expr = parse_operand(args[0])
-            ty_info = types.get(dst)
+            ty_info = self.types.get(dst)
             mir_ty = ty_info.mir_ty if ty_info and ty_info.mir_ty else "TyU32"
-            stmts.append(AtomicLoadStmt(dst=dst, addr=addr_expr, ty=mir_ty))
-            continue
+            return AtomicLoadStmt(dst=dst, addr=addr_expr, ty=mir_ty)
 
         m_at_store = RE_ATOMIC_STORE.match(line)
         if m_at_store:
             args = split_args(m_at_store.group("args"))
-            if len(args) < 3 or ordering_from_token(args[-1], ordering_bindings) != "Release":
+            if len(args) < 3 or ordering_from_token(args[-1], state.ordering_bindings) != "Release":
                 print(f"error: unsupported atomic store ordering in line: {line}", file=sys.stderr)
                 sys.exit(2)
             addr_expr = parse_operand(args[0])
             val_expr = parse_expr(args[1])
             ptr_name = operand_base(args[0])
-            ty = ptr_targets.get(ptr_name or "", "TyU32")
-            stmts.append(
-                AtomicStoreStmt(
-                    addr=addr_expr,
-                    value=val_expr,
-                    ty=ty,
-                )
-            )
-            continue
+            ty = state.ptr_targets.get(ptr_name or "", "TyU32")
+            return AtomicStoreStmt(addr=addr_expr, value=val_expr, ty=ty)
 
         if RE_BARRIER.search(line):
-            stmts.append(BarrierStmt())
+            return BarrierStmt()
 
-    return stmts, derived_exprs, ptr_targets
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +746,12 @@ def main() -> int:
         return 1
 
     lines = args.input.read_text().splitlines()
-    stmts, _, _ = parse_statements(lines)
+    translator = MIRTranslator(lines)
+    try:
+        stmts = translator.translate()
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
 
     module_name = module_from_path(args.output, args.module_name)
     coq_src = coq_module(module_name, stmts)

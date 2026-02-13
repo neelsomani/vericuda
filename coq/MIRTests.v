@@ -101,6 +101,7 @@ Proof. reflexivity. Qed.
 Definition env_saxpy_gen : MS.env :=
   env_of_pairs [ ("_2", M.VU64 1000%Z)
                ; ("_3", M.VU64 2000%Z)
+               ; ("_6", M.VBool false)
                ; ("_8", M.VU32 0%Z)
                ; ("_14", M.VF32 42%Z)
                ].

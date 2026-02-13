@@ -82,3 +82,6 @@ bad-test-%: $(EXAMPLE_DIR)/%.rs tools/mir2coq.py $(MIR_DUMP_DIR)/%.stamp
 	  fi; \
 	  rm -f $$OUT_FILE; \
 	done
+
+clean:
+	rm -rf $(MIR_DUMP_DIR) $(COQ_EXAMPLE_DIR)
