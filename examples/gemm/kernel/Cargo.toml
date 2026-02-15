@@ -1,0 +1,13 @@
+[package]
+name = "cuq_example_gemm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+cuda_std = { version = "0.2", default-features = false }
+glam = { version = "0.30.1", default-features = false, features = ["cuda", "nostd-libm"] }

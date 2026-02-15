@@ -307,6 +307,11 @@ class ReturnTerm(Terminator):
 
 
 @dataclasses.dataclass
+class UnreachableTerm(Terminator):
+    pass
+
+
+@dataclasses.dataclass
 class SwitchTerm(Terminator):
     cond: Expr
     true_label: str
@@ -547,6 +552,9 @@ class MIRTranslator:
             stmts.extend(block_stmts)
             if isinstance(terminator, ReturnTerm):
                 return stmts, state, None
+            if isinstance(terminator, UnreachableTerm):
+                print(f"warning: skipping unreachable block {current}", file=sys.stderr)
+                return stmts, state, None
             if isinstance(terminator, GotoTerm):
                 current = terminator.target
                 continue
@@ -594,6 +602,10 @@ class MIRTranslator:
             m_assert = RE_ASSERT.search(line)
             if m_assert:
                 terminator = GotoTerm(target=m_assert.group("label"))
+                continue
+
+            if line == "unreachable;":  # panic/unreachable paths, stop translating this branch
+                terminator = UnreachableTerm()
                 continue
 
             m_ord = RE_ORDERING_SET.match(line)
