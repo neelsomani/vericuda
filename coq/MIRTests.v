@@ -101,7 +101,7 @@ Proof. reflexivity. Qed.
 Definition env_saxpy_gen : MS.env :=
   env_of_pairs [ ("_2", M.VU64 1000%Z)
                ; ("_3", M.VU64 2000%Z)
-               ; ("_6", M.VBool false)
+               ; ("_6", M.VBool true)
                ; ("_8", M.VU32 0%Z)
                ; ("_14", M.VF32 42%Z)
                ].
@@ -112,7 +112,8 @@ Definition μ_saxpy_gen : MS.mem :=
 Definition cfg_saxpy_gen : MS.cfg :=
   MS.mk_cfg SG.prog env_saxpy_gen μ_saxpy_gen.
 
-Definition trace_saxpy_gen : list M.event_mir := fst (MR.run 10 cfg_saxpy_gen).
+(* Fuel 4 = guard step + three body instructions, yielding one loop iteration. *)
+Definition trace_saxpy_gen : list M.event_mir := fst (MR.run 4 cfg_saxpy_gen).
 
 Example saxpy_gen_events_ok :
   trace_saxpy_gen =

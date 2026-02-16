@@ -91,6 +91,20 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
               Some (None, cfg')
           | None => None
           end
+      | M.SWhile cond body =>
+          match MS.eval_bool ρ cond with
+          | Some true =>
+              let cfg' := {| MS.cfg_code := body ++ (M.SWhile cond body :: rest);
+                              MS.cfg_env := ρ;
+                              MS.cfg_mem := μ |} in
+              Some (None, cfg')
+          | Some false =>
+              let cfg' := {| MS.cfg_code := rest;
+                              MS.cfg_env := ρ;
+                              MS.cfg_mem := μ |} in
+              Some (None, cfg')
+          | None => None
+          end
       | M.SSeq body =>
           let cfg' := {| MS.cfg_code := body ++ rest;
                           MS.cfg_env := ρ;
