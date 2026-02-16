@@ -148,6 +148,16 @@ Inductive step : cfg -> option M.event_mir -> cfg -> Prop :=
     step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
          None
          (mk_cfg (f_branch ++ stk) ρ μ)
+| StepWhileTrue : forall stk ρ μ cond body,
+    eval_bool ρ cond = Some true ->
+    step (mk_cfg (M.SWhile cond body :: stk) ρ μ)
+      None
+      (mk_cfg (body ++ (M.SWhile cond body :: stk)) ρ μ)
+| StepWhileFalse : forall stk ρ μ cond body,
+    eval_bool ρ cond = Some false ->
+    step (mk_cfg (M.SWhile cond body :: stk) ρ μ)
+      None
+      (mk_cfg stk ρ μ)
 | StepSeq : forall stk ρ μ body,
     step (mk_cfg (M.SSeq body :: stk) ρ μ)
          None
