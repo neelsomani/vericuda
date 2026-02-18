@@ -12,6 +12,9 @@ Require Import PTXRelations.
 Require Import Translate.
 Require Import saxpy_gen.
 Require Import atomic_flag_gen.
+Require Import vecadd_gen.
+Require Import gemm_gemm_naive_gen.
+Require Import i128_gen.
 
 Module M := MIR.
 Module MS := MIRSemantics.
@@ -21,6 +24,9 @@ Module RF := PTXRelations.
 Module TR := Translate.
 Module SG := Saxpy_gen.
 Module AF := Atomic_flag_gen.
+Module VG := Vecadd_gen.
+Module GG := Gemm_gemm_naive_gen.
+Module IG := I128_gen.
 
 Fixpoint lookup_mem (k : M.addr) (ps : list (M.addr * M.val)) : option M.val :=
   match ps with
@@ -155,6 +161,113 @@ Example atomic_gen_translate_ok :
     [ P.EvLoad  P.space_global P.sem_acquire (Some P.scope_sys) P.MemU32 3000 0
     ; P.EvStore P.space_global P.sem_relaxed None P.MemU32 4000 0
     ; P.EvStore P.space_global P.sem_release (Some P.scope_sys) P.MemU32 3000 1 ].
+Proof. reflexivity. Qed.
+
+Definition env_vecadd_gen : MS.env :=
+  env_of_pairs [ ("_1", M.VU64 5000%Z)
+               ; ("_2", M.VU64 6000%Z)
+               ; ("_11", M.VU64 7000%Z)
+               ; ("_64", M.VU32 10%Z)
+               ; ("_66", M.VU32 1%Z)
+               ; ("_9", M.VBool true)
+               ].
+
+Definition μ_vecadd_gen : MS.mem :=
+  mem_of_pairs [ (5000, M.VF32 1%Z)
+               ; (6000, M.VF32 2%Z)
+               ; (7000, M.VU32 0%Z)
+               ].
+
+Definition cfg_vecadd_gen : MS.cfg :=
+  MS.mk_cfg VG.prog env_vecadd_gen μ_vecadd_gen.
+
+Definition trace_vecadd_gen : list M.event_mir := fst (MR.run 5 cfg_vecadd_gen).
+
+Example vecadd_gen_events_ok :
+  trace_vecadd_gen =
+    [ M.EvLoad M.TyF32 5000 (M.VF32 1%Z)
+    ; M.EvLoad M.TyF32 6000 (M.VF32 2%Z)
+    ; M.EvStore M.TyU32 7000 (M.VF32 3%Z)
+    ].
+Proof. reflexivity. Qed.
+
+Example vecadd_gen_translate_ok :
+  TR.translate_trace trace_vecadd_gen =
+    [ P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 5000 1
+    ; P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 6000 2
+    ; P.EvStore P.space_global P.sem_relaxed None P.MemU32 7000 3
+    ].
+Proof. reflexivity. Qed.
+
+Definition env_gemm_naive_gen : MS.env :=
+  env_of_pairs [ ("_1", M.VU64 8000%Z)
+               ; ("_2", M.VU64 9000%Z)
+               ; ("_58", M.VU64 10000%Z)
+               ; ("_64", M.VU32 3%Z)
+               ; ("_66", M.VU32 4%Z)
+               ; ("_33", M.VBool true)
+               ; ("_34", M.VBool true)
+               ].
+
+Definition μ_gemm_naive_gen : MS.mem :=
+  mem_of_pairs [ (8000, M.VF32 5%Z)
+               ; (9000, M.VF32 6%Z)
+               ; (10000, M.VF32 7%Z)
+               ].
+
+Definition cfg_gemm_naive_gen : MS.cfg :=
+  MS.mk_cfg GG.prog env_gemm_naive_gen μ_gemm_naive_gen.
+
+Definition trace_gemm_naive_gen : list M.event_mir := fst (MR.run 5 cfg_gemm_naive_gen).
+
+Example gemm_naive_loop_prefix_events :
+  trace_gemm_naive_gen =
+    [ M.EvLoad M.TyF32 8000 (M.VF32 5%Z)
+    ; M.EvLoad M.TyF32 9000 (M.VF32 6%Z)
+    ].
+Proof. reflexivity. Qed.
+
+Example gemm_naive_loop_prefix_translate :
+  TR.translate_trace trace_gemm_naive_gen =
+    [ P.EvLoad P.space_global P.sem_relaxed None P.MemF32 8000 5
+    ; P.EvLoad P.space_global P.sem_relaxed None P.MemF32 9000 6
+    ].
+Proof. reflexivity. Qed.
+
+Definition env_i128_gen : MS.env :=
+  env_of_pairs [ ("_31", M.VBool false)
+               ; ("_33", M.VBool false)
+               ; ("_1", M.VU64 12000%Z)
+               ; ("_2", M.VU64 13000%Z)
+               ; ("_46", M.VU64 14000%Z)
+               ; ("_45", M.VU32 23%Z)
+               ].
+
+Definition μ_i128_gen : MS.mem :=
+  mem_of_pairs [ (12000, M.VU32 9%Z)
+               ; (13000, M.VU32 4%Z)
+               ; (14000, M.VU32 0%Z)
+               ].
+
+Definition cfg_i128_gen : MS.cfg :=
+  MS.mk_cfg IG.prog env_i128_gen μ_i128_gen.
+
+Definition trace_i128_gen : list M.event_mir := fst (MR.run 5 cfg_i128_gen).
+
+Example i128_gen_prefix_events :
+  trace_i128_gen =
+    [ M.EvLoad M.TyU32 12000 (M.VU32 9%Z)
+    ; M.EvLoad M.TyU32 13000 (M.VU32 4%Z)
+    ; M.EvStore M.TyU32 14000 (M.VU32 23%Z)
+    ].
+Proof. reflexivity. Qed.
+
+Example i128_gen_prefix_translate :
+  TR.translate_trace trace_i128_gen =
+    [ P.EvLoad  P.space_global P.sem_relaxed None P.MemU32 12000 9
+    ; P.EvLoad  P.space_global P.sem_relaxed None P.MemU32 13000 4
+    ; P.EvStore P.space_global P.sem_relaxed None P.MemU32 14000 23
+    ].
 Proof. reflexivity. Qed.
 
 (* === Step 5: reads-from maps and coherence relations === *)

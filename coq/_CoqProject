@@ -9,3 +9,6 @@ Soundness.v
 examples/saxpy_gen.v
 examples/atomic_flag_gen.v
 examples/vecadd_gen.v
+examples/gemm_gemm_naive_gen.v
+examples/gemm_gemm_tiled_gen.v
+examples/i128_gen.v
