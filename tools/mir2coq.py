@@ -169,12 +169,11 @@ class IfStmt(Stmt):
 
 
 @dataclasses.dataclass
-class WhileStmt(Stmt):
-    cond: Expr
+class LoopStmt(Stmt):
     body: List[Stmt]
 
     def to_coq(self) -> str:
-        return f"M.SWhile ({self.cond.to_coq()}) {render_stmt_block(self.body)}"
+        return f"M.SLoop {render_stmt_block(self.body)}"
 
 
 def render_stmt_block(stmts: Sequence[Stmt]) -> str:
@@ -325,14 +324,6 @@ class SwitchTerm(Terminator):
     cond: Expr
     true_label: str
     false_label: str
-
-
-@dataclasses.dataclass
-class LoopContext:
-    header_label: str
-    exit_label: str
-    break_seen: bool = False
-    continue_sources: Set[str] = dataclasses.field(default_factory=set)
 
 
 def split_args(arg_str: str) -> List[str]:
@@ -510,17 +501,32 @@ def parse_switch_targets(arms: str) -> Tuple[str, str]:
         dest = dest.strip()
         target = dest.split()[0]
         if key in {"0", "false"}:
-            false_label = target
-        elif key in {"1", "true", "otherwise"}:
-            true_label = target
-        else:
             if false_label is None:
                 false_label = target
-            else:
+            continue
+        if key in {"1", "true"}:
+            if true_label is None:
                 true_label = target
+            continue
+        if key == "otherwise":
+            if false_label is None:
+                false_label = target
+            elif true_label is None:
+                true_label = target
+            continue
+        if false_label is None:
+            false_label = target
+        elif true_label is None:
+            true_label = target
     if false_label is None or true_label is None:
         raise ValueError("switchInt requires exactly two branches")
     return false_label, true_label
+
+
+class LoopBoundary(Exception):
+    def __init__(self, label: str):
+        super().__init__(label)
+        self.label = label
 
 
 class MIRTranslator:
@@ -528,23 +534,7 @@ class MIRTranslator:
         self.lines = lines
         self.types = collect_types(lines)
         self.blocks = split_blocks(lines)
-        self._loop_stack: List[LoopContext] = []
-
-    # Loop context helpers -------------------------------------------------
-    def _push_loop_context(self, header_label: str, exit_label: str) -> None:
-        self._loop_stack.append(LoopContext(header_label=header_label, exit_label=exit_label))
-
-    def _pop_loop_context(self) -> LoopContext:
-        return self._loop_stack.pop()
-
-    def _record_loop_flow(self, source: str, target: str) -> None:
-        if not self._loop_stack:
-            return
-        ctx = self._loop_stack[-1]
-        if target == ctx.exit_label:
-            ctx.break_seen = True
-        if target == ctx.header_label:
-            ctx.continue_sources.add(source)
+        self._loop_headers_in_progress: Set[str] = set()
 
     def translate(self) -> List[Stmt]:
         # Start translating from the entry block (bb0 if it exists, otherwise the first block) and follow the control flow until we exhaust reachable blocks or hit unsupported patterns. Collect statements along the way.
@@ -571,42 +561,52 @@ class MIRTranslator:
             visited = set()
         stmts: List[Stmt] = []
         current = label
-        while current is not None:
-            if stop_label and current == stop_label:
-                return stmts, state, stop_label
-            if current in visited:
-                # raise ValueError(f"loops not supported (stuck in {current})")
-                print(f"warning: loops not supported (stuck in {current})", file=sys.stderr)
-                return stmts, state, None
-            visited.add(current)
-            block = self.blocks.get(current)
-            if block is None:
-                raise ValueError(f"missing block {current}")
-            block_stmts, state, terminator = self._process_block(block, state)
-            stmts.extend(block_stmts)
-            if isinstance(terminator, ReturnTerm):
-                return stmts, state, None
-            if isinstance(terminator, UnreachableTerm):
-                print(f"warning: skipping unreachable block {current}", file=sys.stderr)
-                return stmts, state, None
-            if isinstance(terminator, GotoTerm):
-                current = terminator.target
-                continue
-            if isinstance(terminator, SwitchTerm):
-                if self._translate_loop_if_possible(current, terminator, state, stmts):
+        try:
+            while current is not None:
+                if stop_label and current == stop_label:
+                    return stmts, state, stop_label
+                if (
+                    self._loop_headers_in_progress
+                    and current in self._loop_headers_in_progress
+                    and (not stop_label or current != stop_label)
+                ):
+                    raise LoopBoundary(current)
+                if current in visited:
+                    # raise ValueError(f"loops not supported (stuck in {current})")
+                    print(f"warning: loops not supported (stuck in {current})", file=sys.stderr)
+                    return stmts, state, None
+                visited.add(current)
+                block = self.blocks.get(current)
+                if block is None:
+                    raise ValueError(f"missing block {current}")
+                block_stmts, state, terminator = self._process_block(block, state)
+                stmts.extend(block_stmts)
+                if isinstance(terminator, ReturnTerm):
+                    return stmts, state, None
+                if isinstance(terminator, UnreachableTerm):
+                    return stmts, state, None
+                if isinstance(terminator, GotoTerm):
+                    current = terminator.target
+                    continue
+                if isinstance(terminator, SwitchTerm):
+                    if self._translate_loop_if_possible(current, terminator, state, stmts):
+                        current = terminator.false_label
+                        continue
+                    true_state = state.copy()
+                    true_stmts, _, _ = self._translate_path(
+                        terminator.true_label,
+                        true_state,
+                        stop_label=terminator.false_label,
+                        visited=set(),
+                    )
+                    stmts.append(IfStmt(cond=terminator.cond, then_branch=true_stmts, else_branch=[]))
                     current = terminator.false_label
                     continue
-                true_state = state.copy()
-                true_stmts, _, _ = self._translate_path(
-                    terminator.true_label,
-                    true_state,
-                    stop_label=terminator.false_label,
-                    visited=set(),
-                )
-                stmts.append(IfStmt(cond=terminator.cond, then_branch=true_stmts, else_branch=[]))
-                current = terminator.false_label
-                continue
-            raise ValueError("unreachable terminator")
+                raise ValueError("unreachable terminator")
+        except LoopBoundary as boundary:
+            if stop_label and boundary.label == stop_label:
+                return stmts, state, stop_label
+            raise
         return stmts, state, None
 
     def _translate_loop_if_possible(
@@ -616,42 +616,27 @@ class MIRTranslator:
         state: TranslatorState,
         stmts: List[Stmt],
     ) -> bool:
-        if not header_label:
+        if not header_label or header_label in self._loop_headers_in_progress:
             return False
         loop_state = state.copy()
-        self._push_loop_context(header_label, terminator.false_label)
-        loop_body: List[Stmt] = []
-        loop_stop_label: Optional[str] = None
+        self._loop_headers_in_progress.add(header_label)
         try:
-            loop_body, _, loop_stop_label = self._translate_path(
-                terminator.true_label,
-                loop_state,
-                stop_label=header_label,
-                visited=set(),
-            )
-        finally:
-            ctx = self._pop_loop_context()
+            try:
+                loop_body, _, loop_stop_label = self._translate_path(
+                    terminator.true_label,
+                    loop_state,
+                    stop_label=header_label,
+                    visited=set(),
+                )
+            except LoopBoundary:
+                return False
             if loop_stop_label != header_label:
                 return False
-            if not ctx.continue_sources:
-                return False
-            if ctx.break_seen or len(ctx.continue_sources) > 1:
-                self._warn_loop_context(header_label, ctx)
-                return False
-            stmts.append(WhileStmt(cond=terminator.cond, body=loop_body))
+            stmts.append(LoopStmt(body=loop_body))
             return True
+        finally:
+            self._loop_headers_in_progress.discard(header_label)
 
-        def _warn_loop_context(self, header_label: str, ctx: LoopContext) -> None:
-            if ctx.break_seen:
-                print(
-                    f"warning: loop starting at {header_label} contains a break; skipping loop translation",
-                    file=sys.stderr,
-                )
-            if len(ctx.continue_sources) > 1:
-                print(
-                    f"warning: loop starting at {header_label} contains a continue; skipping loop translation",
-                    file=sys.stderr,
-                )
     def _process_block(
         self, block: Block, state: TranslatorState
     ) -> Tuple[List[Stmt], TranslatorState, Terminator]:
@@ -677,13 +662,11 @@ class MIRTranslator:
             m_goto = RE_GOTO.search(line)
             if m_goto:
                 terminator = GotoTerm(target=m_goto.group("label"))
-                self._record_loop_flow(block.label, terminator.target)
                 continue
 
             m_assert = RE_ASSERT.search(line)
             if m_assert:
                 terminator = GotoTerm(target=m_assert.group("label"))
-                self._record_loop_flow(block.label, terminator.target)
                 continue
 
             if line == "unreachable;":  # panic/unreachable paths, stop translating this branch
@@ -702,7 +685,6 @@ class MIRTranslator:
             m_call = RE_CALL_RETURN.search(line)
             if m_call:
                 terminator = GotoTerm(target=m_call.group("label"))
-                self._record_loop_flow(block.label, terminator.target)
 
         return stmts, state, terminator
 

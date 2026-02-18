@@ -43,7 +43,7 @@ $(STAMP_DIR)/%.stamp: $(EXAMPLE_DIR)/%/kernel/src/lib.rs $(EXAMPLE_DIR)/%/Cargo.
 	  mkdir -p "$$EXAMPLE_MIR_DIR"; \
 	  echo "[cargo] dumping MIR for $* -> $$EXAMPLE_MIR_DIR"; \
 	  cd $(EXAMPLE_DIR)/$* && \
-		RUSTFLAGS="$(RUSTFLAGS) -Zunstable-options -Z dump-mir-dir=$$EXAMPLE_MIR_DIR" $(CARGO) rustc -p $(CARGO_PKG_PREFIX)$* --lib -- $(MIR_RUSTC_FLAGS)
+		RUSTFLAGS="$(RUSTFLAGS) -Zunstable-options -Z dump-mir-dir=$$EXAMPLE_MIR_DIR" $(CARGO) rustc -p $(CARGO_PKG_PREFIX)$* --lib -- $(MIR_RUSTC_FLAGS) 2>/dev/null;
 	@touch $@
 
 $(COQ_EXAMPLE_DIR)/%_gen.v: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py $(STAMP_DIR)/%.stamp
