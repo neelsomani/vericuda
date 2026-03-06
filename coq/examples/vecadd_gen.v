@@ -8,7 +8,10 @@ Module MS := MIRSemantics.
 Module Vecadd_gen.
 
 Definition prog : list M.stmt :=
-  [ M.SIf (M.EVar "_9") [ M.SLoad "_13" (M.EVar "_1") M.TyF32;
+  [ M.SAssign "_7" (M.EVar "_8");
+    M.SIf (M.EVar "_9") [ M.SAssign "_19" (M.EVar "_12");
+      M.SAssign "_20" (M.EVar "_19");
+      M.SLoad "_13" (M.EVar "_1") M.TyF32;
       M.SLoad "_16" (M.EVar "_2") M.TyF32;
       M.SStore (M.EVar "_11") (M.EAdd (M.EVar "_13") (M.EVar "_16")) M.TyU32 ] [] ].
 

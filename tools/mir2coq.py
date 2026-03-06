@@ -30,6 +30,7 @@ import argparse
 import dataclasses
 import pathlib
 import re
+import struct
 import sys
 from typing import Dict, List, Optional, Sequence, Tuple, Set
 
@@ -103,6 +104,15 @@ class PtrAdd(Expr):
 class Stmt:
     def to_coq(self) -> str:
         raise NotImplementedError
+
+
+@dataclasses.dataclass
+class AssignStmt(Stmt):
+    dst: str
+    expr: Expr
+
+    def to_coq(self) -> str:
+        return f'M.SAssign "{self.dst}" ({self.expr.to_coq()})'
 
 
 @dataclasses.dataclass
@@ -265,6 +275,7 @@ RE_ATOMIC_LOAD = re.compile(
 RE_ATOMIC_STORE = re.compile(
     r"^\s*(?:{ident}\s*=\s*)?AtomicU\d+::store\((?P<args>.+)\)".format(ident=IDENT)
 )
+RE_ASSIGN = re.compile(r"^\s*(?P<dst>{ident})\s*=\s*(?P<rhs>.+);".format(ident=IDENT))
 RE_BARRIER = re.compile(r"barrier|syncthreads", re.IGNORECASE)
 RE_ORDERING_SET = re.compile(
     r"^\s*(?P<dst>{ident})\s*=\s*(?:core::sync::atomic::Ordering::)?(?P<ord>Acquire|Release|Relaxed|SeqCst|AcqRel|ReleaseAcquire|Consume)\s*;".format(
@@ -356,6 +367,11 @@ def parse_operand(token: str) -> Expr:
             return BoolConst(True)
         if payload == "false":
             return BoolConst(False)
+        m_float = re.match(r"([-+]?\d+(?:\.\d+)?)(?:f32)", payload)
+        if m_float:
+            numeric = float(m_float.group(1))
+            bits = struct.unpack("<I", struct.pack("<f", numeric))[0]
+            return Const(ctor="M.VF32", value=str(bits))
         m = re.match(r"([-+]?\d+)_([iu](?:32|64)|usize|isize)", payload)
         if m:
             value, suffix = m.groups()
@@ -383,6 +399,14 @@ def parse_expr(src: str) -> Expr:
             if len(args) == 2:
                 return cls(parse_expr(args[0]), parse_expr(args[1]))
     return parse_operand(src)
+
+
+def is_supported_expr(expr: Expr) -> bool:
+    if isinstance(expr, Var):
+        return re.fullmatch(IDENT, expr.name) is not None
+    if isinstance(expr, (Const, BoolConst, Add, Mul, PtrAdd)):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -753,6 +777,15 @@ class MIRTranslator:
             ptr_name = operand_base(args[0])
             ty = state.ptr_targets.get(ptr_name or "", "TyU32")
             return AtomicStoreStmt(addr=addr_expr, value=val_expr, ty=ty)
+
+        m_assign = RE_ASSIGN.match(line)
+        if m_assign:
+            dst = m_assign.group("dst")
+            rhs = m_assign.group("rhs").rstrip(";")
+            expr = parse_expr(rhs)
+            if is_supported_expr(expr):
+                return AssignStmt(dst=dst, expr=expr)
+            return None
 
         if RE_BARRIER.search(line):
             return BarrierStmt()

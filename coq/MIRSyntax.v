@@ -48,6 +48,8 @@ Inductive event_mir :=
 | EvStore (ty : mir_ty) (addr : addr) (v : val)
 | EvAtomicLoadAcquire (ty : mir_ty) (addr : addr) (v : val)
 | EvAtomicStoreRelease (ty : mir_ty) (addr : addr) (v : val)
+| EvAssign (x : var) (v : val)
+| EvCond (cond : expr) (result : bool)
 | EvBarrier.
 
 End MIR.

@@ -107,9 +107,10 @@ Definition eval_bool (ρ : env) (e : M.expr) : option bool :=
 
 Inductive step : cfg -> option M.event_mir -> cfg -> Prop :=
 | StepAssign : forall stk ρ μ x rhs v,
-    eval_expr ρ rhs = Some v ->
-    step (mk_cfg (M.SAssign x rhs :: stk) ρ μ) None
-         (mk_cfg stk (env_set ρ x v) μ)
+  eval_expr ρ rhs = Some v ->
+  step (mk_cfg (M.SAssign x rhs :: stk) ρ μ)
+     (Some (M.EvAssign x v))
+     (mk_cfg stk (env_set ρ x v) μ)
 | StepLoad : forall stk ρ μ x ptr ty addr v,
     eval_addr ρ ptr = Some addr ->
     mem_read μ addr = Some v ->
@@ -139,15 +140,15 @@ Inductive step : cfg -> option M.event_mir -> cfg -> Prop :=
          (Some M.EvBarrier)
          (mk_cfg stk ρ μ)
 | StepIfTrue : forall stk ρ μ cond t_branch f_branch,
-    eval_bool ρ cond = Some true ->
-    step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
-         None
-         (mk_cfg (t_branch ++ stk) ρ μ)
+  eval_bool ρ cond = Some true ->
+  step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
+     (Some (M.EvCond cond true))
+     (mk_cfg (t_branch ++ stk) ρ μ)
 | StepIfFalse : forall stk ρ μ cond t_branch f_branch,
-    eval_bool ρ cond = Some false ->
-    step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
-         None
-         (mk_cfg (f_branch ++ stk) ρ μ)
+  eval_bool ρ cond = Some false ->
+  step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
+     (Some (M.EvCond cond false))
+     (mk_cfg (f_branch ++ stk) ρ μ)
 | StepLoop : forall stk ρ μ body,
     step (mk_cfg (M.SLoop body :: stk) ρ μ)
       None
