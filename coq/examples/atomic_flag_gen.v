@@ -4,6 +4,7 @@ Require Import MIRSyntax MIRSemantics.
 
 Module M := MIR.
 Module MS := MIRSemantics.
+Module MC := MIRConstants.
 
 Module Atomic_flag_gen.
 

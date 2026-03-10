@@ -29,7 +29,13 @@ Inductive expr :=
 | EVal (v : val)
 | EVar (x : var)
 | EAdd (lhs rhs : expr)
+| ESub (lhs rhs : expr)
 | EMul (lhs rhs : expr)
+| EDiv (lhs rhs : expr)
+| ELt (lhs rhs : expr)
+| EEq (lhs rhs : expr)
+| EAnd (lhs rhs : expr)
+| ENot (arg : expr)
 | EPtrAdd (base ofs : expr).
 
 Inductive stmt :=
@@ -53,3 +59,20 @@ Inductive event_mir :=
 | EvBarrier.
 
 End MIR.
+
+Module MIRConstants.
+
+Module M := MIR.
+
+Definition const_i128_MIN : M.val :=
+	M.VI32 (-170141183460469231731687303715884105728)%Z.
+
+Definition const_TILE_SIZE : M.val := M.VU64 16%Z.
+
+Definition const_TILE_SIZE_2D : M.val := M.VU64 256%Z.
+
+Definition const_gemm_tiled_TILE_SIZE : M.val := M.VU64 16%Z.
+
+Definition const_gemm_tiled_TILE_SIZE_2D : M.val := M.VU64 256%Z.
+
+End MIRConstants.

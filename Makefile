@@ -96,3 +96,5 @@ bad-test-%: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py $(STAMP_DIR)/%.s
 
 clean:
 	rm -rf $(STAMP_DIR) $(COQ_EXAMPLE_DIR) $(EXAMPLE_DIR)/*/target $(EXAMPLE_DIR)/*/mir_dump
+
+all: demo

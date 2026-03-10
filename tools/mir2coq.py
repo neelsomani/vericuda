@@ -58,7 +58,15 @@ class Const(Expr):
     value: str
 
     def to_coq(self) -> str:
-        return f"M.EVal ({self.ctor} {self.value})"
+        literal = format_z_literal(self.value)
+        return f"M.EVal ({self.ctor} {literal})"
+
+
+def format_z_literal(raw: str) -> str:
+    literal = raw.strip()
+    if literal.startswith("-") and not literal.startswith("(-"):
+        return f"({literal})"
+    return literal
 
 
 @dataclasses.dataclass
@@ -80,6 +88,15 @@ class Add(Expr):
 
 
 @dataclasses.dataclass
+class Sub(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.ESub ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+
+@dataclasses.dataclass
 class Mul(Expr):
     lhs: Expr
     rhs: Expr
@@ -89,12 +106,64 @@ class Mul(Expr):
 
 
 @dataclasses.dataclass
+class Div(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EDiv ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+
+@dataclasses.dataclass
+class Lt(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.ELt ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+
+@dataclasses.dataclass
+class Eq(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EEq ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+
+@dataclasses.dataclass
+class BitAnd(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EAnd ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+
+@dataclasses.dataclass
+class Not(Expr):
+    arg: Expr
+
+    def to_coq(self) -> str:
+        return f"M.ENot ({self.arg.to_coq()})"
+
+
+@dataclasses.dataclass
 class PtrAdd(Expr):
     base: Expr
     offset: Expr
 
     def to_coq(self) -> str:
         return f"M.EPtrAdd ({self.base.to_coq()}) ({self.offset.to_coq()})"
+
+
+@dataclasses.dataclass
+class SymbolConst(Expr):
+    name: str
+
+    def to_coq(self) -> str:
+        return f"M.EVal (MC.const_{self.name})"
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +282,14 @@ TYPE_ALIASES = {
     "bool": "TyBool",
 }
 
+SYMBOLIC_CONSTS = {
+    "i128::MIN": "i128_MIN",
+    "TILE_SIZE": "TILE_SIZE",
+    "TILE_SIZE_2D": "TILE_SIZE_2D",
+    "gemm_tiled::TILE_SIZE": "gemm_tiled_TILE_SIZE",
+    "gemm_tiled::TILE_SIZE_2D": "gemm_tiled_TILE_SIZE_2D",
+}
+
 
 def classify_type(raw: str) -> TypeInfo:
     raw = raw.strip()
@@ -288,6 +365,7 @@ RE_GOTO = re.compile(r"goto\s*->\s*(?P<label>bb\d+);")
 RE_RETURN_TERM = re.compile(r"return;")
 RE_ASSERT = re.compile(r"assert\(.*\)\s*->\s*\[success:\s*(?P<label>bb\d+)")
 RE_CALL_RETURN = re.compile(r"->\s*\[return:\s*(?P<label>bb\d+)")
+RE_TUPLE_FIELD = re.compile(r"^(?P<name>{ident})\.(?P<field>\d+):".format(ident=IDENT))
 
 
 @dataclasses.dataclass
@@ -356,10 +434,45 @@ def split_args(arg_str: str) -> List[str]:
     return args
 
 
+def strip_wrapped_parens(token: str) -> str:
+    stripped = token.strip()
+    while stripped.startswith("(") and stripped.endswith(")"):
+        depth = 0
+        balanced = True
+        for idx, ch in enumerate(stripped):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and idx != len(stripped) - 1:
+                    balanced = False
+                    break
+        if not balanced or depth != 0:
+            break
+        stripped = stripped[1:-1].strip()
+    return stripped
+
+
+def normalize_symbol_token(token: str) -> str:
+    cleaned = token.strip()
+    while cleaned and cleaned[-1] in ":;,":
+        cleaned = cleaned[:-1]
+        cleaned = cleaned.rstrip()
+    return cleaned
+
+
+def symbol_const_name(payload: str) -> Optional[str]:
+    cleaned = normalize_symbol_token(payload)
+    return SYMBOLIC_CONSTS.get(cleaned)
+
+
 def parse_operand(token: str) -> Expr:
     token = token.strip()
     if token.startswith("copy ") or token.startswith("move "):
-        return Var(token.split()[1])
+        remainder = token.split(None, 1)[1]
+        return parse_operand(remainder)
+
+    token = strip_wrapped_parens(token)
 
     if token.startswith("const "):
         payload = token[len("const "):]
@@ -384,27 +497,59 @@ def parse_operand(token: str) -> Expr:
                 "i64": "M.VI32",
             }.get(suffix, "M.VI32")
             return Const(ctor=ctor, value=value)
+        symbol_name = symbol_const_name(payload)
+        if symbol_name:
+            return SymbolConst(name=symbol_name)
         # Fallback: treat as i32 constant.
         return Const(ctor="M.VI32", value=payload.split("_")[0])
+
+    m_cast = re.match(rf"^(?P<base>{IDENT})\s+as\s+.+", token)
+    if m_cast:
+        return Var(m_cast.group("base"))
+
+    m_field = RE_TUPLE_FIELD.match(token)
+    if m_field:
+        base = m_field.group("name")
+        field = m_field.group("field")
+        if field == "0":
+            return Var(base)
+        if field == "1":
+            return BoolConst(False)
 
     return Var(token)
 
 
 def parse_expr(src: str) -> Expr:
     src = src.strip()
-    for ctor, cls in ("Add", Add), ("Mul", Mul):
+    if src.startswith("AddWithOverflow(") and src.endswith(")"):
+        inner = src[len("AddWithOverflow") + 1 : -1]
+        args = split_args(inner)
+        if len(args) == 2:
+            return Add(parse_expr(args[0]), parse_expr(args[1]))
+    for ctor, cls in (
+        ("Add", Add),
+        ("Sub", Sub),
+        ("Mul", Mul),
+        ("Div", Div),
+        ("Lt", Lt),
+        ("Eq", Eq),
+        ("BitAnd", BitAnd),
+    ):
         if src.startswith(f"{ctor}(") and src.endswith(")"):
             inner = src[len(ctor) + 1 : -1]
             args = split_args(inner)
             if len(args) == 2:
                 return cls(parse_expr(args[0]), parse_expr(args[1]))
+    if src.startswith("Not(") and src.endswith(")"):
+        inner = src[len("Not") + 1 : -1]
+        return Not(parse_expr(inner))
     return parse_operand(src)
 
 
 def is_supported_expr(expr: Expr) -> bool:
     if isinstance(expr, Var):
         return re.fullmatch(IDENT, expr.name) is not None
-    if isinstance(expr, (Const, BoolConst, Add, Mul, PtrAdd)):
+    if isinstance(expr, (Const, BoolConst, SymbolConst, Add, Sub, Mul, Div, PtrAdd, Lt, Eq, BitAnd, Not)):
         return True
     return False
 
@@ -803,6 +948,7 @@ Require Import MIRSyntax MIRSemantics.
 
 Module M := MIR.
 Module MS := MIRSemantics.
+Module MC := MIRConstants.
 
 """
 

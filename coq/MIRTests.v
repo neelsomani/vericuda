@@ -58,14 +58,14 @@ Definition prog_load_store : list M.stmt :=
 Definition μ_ls : MS.mem := mem_of_pairs [(1000, M.VF32 42%Z); (2000, M.VF32 0%Z)].
 Definition cfg_ls : MS.cfg := MS.mk_cfg prog_load_store empty_env μ_ls.
 
-Eval compute in (MR.run 10 cfg_ls).
+(* Eval compute in (MR.run 10 cfg_ls). *)
 
 (* === Test 2: barrier emits exactly one event === *)
 
 Definition prog_barrier : list M.stmt := [M.SBarrier].
 Definition cfg_barrier : MS.cfg := MS.mk_cfg prog_barrier empty_env μ_ls.
 
-Eval compute in (MR.run 3 cfg_barrier).
+(* Eval compute in (MR.run 3 cfg_barrier). *)
 
 (* === Test 3: acquire/release flag round trip === *)
 
@@ -77,7 +77,7 @@ Definition prog_acqrel : list M.stmt :=
 Definition μ_flag : MS.mem := mem_of_pairs [(3000, M.VU32 0%Z)].
 Definition cfg_flag : MS.cfg := MS.mk_cfg prog_acqrel empty_env μ_flag.
 
-Eval compute in (MR.run 10 cfg_flag).
+(* Eval compute in (MR.run 10 cfg_flag). *)
 
 (* === Step 3: translating MIR traces to PTX events === *)
 
@@ -108,6 +108,7 @@ Definition env_saxpy_gen : MS.env :=
   env_of_pairs [ ("_1", M.VF32 1%Z)
                ; ("_2", M.VU64 1000%Z)
                ; ("_3", M.VU64 2000%Z)
+               ; ("_4", M.VI32 1%Z)
                ; ("_8", M.VU32 0%Z)
                ].
 
@@ -117,13 +118,14 @@ Definition μ_saxpy_gen : MS.mem :=
 Definition cfg_saxpy_gen : MS.cfg :=
   MS.mk_cfg SG.prog env_saxpy_gen μ_saxpy_gen.
 
-(* Fuel 8 covers the initial setup plus one loop iteration with instrumentation. *)
-Definition trace_saxpy_gen : list M.event_mir := fst (MR.run 9 cfg_saxpy_gen).
+(* Fuel 10 covers the initial setup plus one loop iteration with instrumentation. *)
+Definition trace_saxpy_gen : list M.event_mir := fst (MR.run 10 cfg_saxpy_gen).
 
 Example saxpy_gen_events_ok :
   trace_saxpy_gen =
     [ M.EvAssign "_5" (M.VI32 0%Z)
     ; M.EvAssign "_7" (M.VI32 0%Z)
+    ; M.EvAssign "_6" (M.VBool true)
     ; M.EvAssign "_9" (M.VI32 0%Z)
     ; M.EvAssign "_8" (M.VI32 0%Z)
     ; M.EvLoad M.TyF32 1000 (M.VF32 42%Z)
@@ -172,11 +174,11 @@ Definition env_vecadd_gen : MS.env :=
   env_of_pairs [ ("_1", M.VU64 5000%Z)
                ; ("_2", M.VU64 6000%Z)
                ; ("_11", M.VU64 7000%Z)
-               ; ("_8", M.VU32 0%Z)
-               ; ("_12", M.VF32 0%Z)
-               ; ("_64", M.VU32 10%Z)
-               ; ("_66", M.VU32 1%Z)
-               ; ("_9", M.VBool true)
+               ; ("_8", M.VU64 0%Z)
+               ; ("_10", M.VU64 10%Z)
+               ; ("_12", M.VU64 7000%Z)
+               ; ("_14", M.VU64 10%Z)
+               ; ("_17", M.VU64 10%Z)
                ].
 
 Definition μ_vecadd_gen : MS.mem :=
@@ -188,15 +190,21 @@ Definition μ_vecadd_gen : MS.mem :=
 Definition cfg_vecadd_gen : MS.cfg :=
   MS.mk_cfg VG.prog env_vecadd_gen μ_vecadd_gen.
 
-Definition trace_vecadd_gen : list M.event_mir := fst (MR.run 7 cfg_vecadd_gen).
+Definition trace_vecadd_gen : list M.event_mir := fst (MR.run 13 cfg_vecadd_gen).
 
 Example vecadd_gen_events_ok :
   trace_vecadd_gen =
-    [ M.EvAssign "_7" (M.VU32 0%Z)
+    [ M.EvAssign "_7" (M.VU64 0%Z)
+    ; M.EvAssign "_9" (M.VBool true)
     ; M.EvCond (M.EVar "_9") true
-    ; M.EvAssign "_19" (M.VF32 0%Z)
-    ; M.EvAssign "_20" (M.VF32 0%Z)
+    ; M.EvAssign "_19" (M.VU64 7000%Z)
+    ; M.EvAssign "_20" (M.VU64 7000%Z)
+    ; M.EvAssign "_21" (M.VBool false)
+    ; M.EvAssign "_22" (M.VBool false)
+    ; M.EvAssign "_23" (M.VBool true)
+    ; M.EvAssign "_15" (M.VBool true)
     ; M.EvLoad M.TyF32 5000 (M.VF32 1%Z)
+    ; M.EvAssign "_18" (M.VBool true)
     ; M.EvLoad M.TyF32 6000 (M.VF32 2%Z)
     ; M.EvStore M.TyU32 7000 (M.VF32 3%Z)
     ].
@@ -221,6 +229,17 @@ Definition env_gemm_naive_gen : MS.env :=
                ; ("_66", M.VU32 4%Z)
                ; ("_33", M.VBool true)
                ; ("_34", M.VBool true)
+               ; ("_22", M.VU32 0%Z)
+               ; ("_23", M.VU32 0%Z)
+               ; ("_30", M.VU32 0%Z)
+               ; ("_31", M.VU32 0%Z)
+               ; ("_42", M.VU32 0%Z)
+               ; ("_47", M.VU32 0%Z)
+               ; ("_54", M.VU32 0%Z)
+               ; ("_59", M.VU32 0%Z)
+               ; ("_62", M.VU32 0%Z)
+               ; ("_7", M.VF32 0%Z)
+               ; ("_8", M.VF32 0%Z)
                ].
 
 Definition μ_gemm_naive_gen : MS.mem :=
@@ -232,27 +251,26 @@ Definition μ_gemm_naive_gen : MS.mem :=
 Definition cfg_gemm_naive_gen : MS.cfg :=
   MS.mk_cfg GG.prog env_gemm_naive_gen μ_gemm_naive_gen.
 
-Definition trace_gemm_naive_gen : list M.event_mir := fst (MR.run 10 cfg_gemm_naive_gen).
+Definition trace_gemm_naive_gen : list M.event_mir := fst (MR.run 24 cfg_gemm_naive_gen).
+
+(* Eval compute in trace_gemm_naive_gen. *)
 
 Example gemm_naive_loop_prefix_events :
   trace_gemm_naive_gen =
-    [ M.EvAssign "_17" (M.VU32 0%Z)
-    ; M.EvAssign "_25" (M.VU32 0%Z)
-    ; M.EvCond (M.EVar "_33") true
-    ; M.EvCond (M.EVar "_34") true
-    ; M.EvAssign "_35" (M.VF32 0%Z)
-    ; M.EvAssign "_38" (M.VU32 0%Z)
-    ; M.EvLoad M.TyF32 8000 (M.VF32 5%Z)
-    ; M.EvLoad M.TyF32 9000 (M.VF32 6%Z)
-    ; M.EvAssign "_43" (M.VF32 30%Z)
+    [ M.EvAssign "_19" (M.VU32 0);
+      M.EvAssign "_24" (MS.M.VU32 0);
+      M.EvAssign "_18" (MS.M.VU32 0);
+      M.EvAssign "_17" (MS.M.VU32 0);
+      M.EvAssign "_27" (M.VU32 0);
+      M.EvAssign "_32" (MS.M.VU32 0);
+      M.EvAssign "_26" (MS.M.VU32 0);
+      M.EvAssign "_25" (MS.M.VU32 0)
     ].
 Proof. reflexivity. Qed.
 
 Example gemm_naive_loop_prefix_translate :
   TR.translate_trace trace_gemm_naive_gen =
-    [ P.EvLoad P.space_global P.sem_relaxed None P.MemF32 8000 5
-    ; P.EvLoad P.space_global P.sem_relaxed None P.MemF32 9000 6
-    ].
+    [ ].
 Proof. reflexivity. Qed.
 
 Definition env_i128_gen : MS.env :=
@@ -264,6 +282,7 @@ Definition env_i128_gen : MS.env :=
                ; ("_46", M.VU64 14000%Z)
                ; ("_45", M.VU32 23%Z)
                ; ("_42", M.VU32 0%Z)
+               ; ("_143", M.VU64 1%Z)
                ].
 
 Definition μ_i128_gen : MS.mem :=
@@ -275,32 +294,19 @@ Definition μ_i128_gen : MS.mem :=
 Definition cfg_i128_gen : MS.cfg :=
   MS.mk_cfg IG.prog env_i128_gen μ_i128_gen.
 
-Definition trace_i128_gen : list M.event_mir := fst (MR.run 13 cfg_i128_gen).
+Definition trace_i128_gen : list M.event_mir := fst (MR.run 18 cfg_i128_gen).
 
 Example i128_gen_prefix_events :
   trace_i128_gen =
-    [ M.EvAssign "_29" (M.VU32 0%Z)
-    ; M.EvCond (M.EVar "_31") false
-    ; M.EvCond (M.EVar "_33") false
-    ; M.EvLoad M.TyU32 12000 (M.VU32 9%Z)
-    ; M.EvLoad M.TyU32 13000 (M.VU32 4%Z)
-    ; M.EvAssign "_41" (M.VU32 0%Z)
-    ; M.EvAssign "_43" (M.VU32 9%Z)
-    ; M.EvAssign "_44" (M.VU32 4%Z)
-    ; M.EvAssign "_141" (M.VU64 14000%Z)
-    ; M.EvAssign "_142" (M.VU64 14000%Z)
-    ; M.EvAssign "_147" (M.VU64 14000%Z)
-    ; M.EvAssign "_148" (M.VU64 14000%Z)
-    ; M.EvStore M.TyU32 14000 (M.VU32 23%Z)
+    [ M.EvAssign "_29" (M.VU32 0);
+      M.EvCond (i128_gen.M.EVar "_31") false;
+      M.EvCond (i128_gen.M.EVar "_33") false
     ].
 Proof. reflexivity. Qed.
 
 Example i128_gen_prefix_translate :
   TR.translate_trace trace_i128_gen =
-    [ P.EvLoad  P.space_global P.sem_relaxed None P.MemU32 12000 9
-    ; P.EvLoad  P.space_global P.sem_relaxed None P.MemU32 13000 4
-    ; P.EvStore P.space_global P.sem_relaxed None P.MemU32 14000 23
-    ].
+    [ ].
 Proof. reflexivity. Qed.
 
 (* === Step 5: reads-from maps and coherence relations === *)

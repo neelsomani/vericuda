@@ -54,7 +54,17 @@ Definition add_vals (v1 v2 : M.val) : option M.val :=
   match v1, v2 with
   | M.VI32 x, M.VI32 y => Some (M.VI32 (x + y))
   | M.VU32 x, M.VU32 y => Some (M.VU32 (x + y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (x + y))
   | M.VF32 x, M.VF32 y => Some (M.VF32 (x + y))
+  | _, _ => None
+  end.
+
+Definition sub_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (x - y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (x - y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (x - y))
+  | M.VF32 x, M.VF32 y => Some (M.VF32 (x - y))
   | _, _ => None
   end.
 
@@ -62,7 +72,52 @@ Definition mul_vals (v1 v2 : M.val) : option M.val :=
   match v1, v2 with
   | M.VI32 x, M.VI32 y => Some (M.VI32 (x * y))
   | M.VU32 x, M.VU32 y => Some (M.VU32 (x * y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (x * y))
   | M.VF32 x, M.VF32 y => Some (M.VF32 (x * y))
+  | _, _ => None
+  end.
+
+Definition div_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => if Z.eqb y 0 then None else Some (M.VI32 (Z.quot x y))
+  | M.VU32 x, M.VU32 y => if Z.eqb y 0 then None else Some (M.VU32 (Z.quot x y))
+  | M.VU64 x, M.VU64 y => if Z.eqb y 0 then None else Some (M.VU64 (Z.quot x y))
+  | M.VF32 x, M.VF32 y => if Z.eqb y 0 then None else Some (M.VF32 (Z.quot x y))
+  | _, _ => None
+  end.
+
+Definition int_of_val (v : M.val) : option Z :=
+  match v with
+  | M.VI32 z => Some z
+  | M.VU32 z => Some z
+  | M.VU64 z => Some z
+  | _ => None
+  end.
+
+Definition bool_of_val (v : M.val) : option bool :=
+  match v with
+  | M.VBool b => Some b
+  | M.VI32 z => Some (negb (Z.eqb z 0))
+  | M.VU32 z => Some (negb (Z.eqb z 0))
+  | M.VU64 z => Some (negb (Z.eqb z 0))
+  | _ => None
+  end.
+
+Definition eq_vals (v1 v2 : M.val) : option bool :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (Z.eqb x y)
+  | M.VU32 x, M.VU32 y => Some (Z.eqb x y)
+  | M.VU64 x, M.VU64 y => Some (Z.eqb x y)
+  | M.VF32 x, M.VF32 y => Some (Z.eqb x y)
+  | M.VBool b1, M.VBool b2 => Some (Bool.eqb b1 b2)
+  | _, _ => None
+  end.
+
+Definition lt_vals (v1 v2 : M.val) : option bool :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (Z.ltb x y)
+  | M.VU32 x, M.VU32 y => Some (Z.ltb x y)
+  | M.VU64 x, M.VU64 y => Some (Z.ltb x y)
   | _, _ => None
   end.
 
@@ -71,15 +126,61 @@ Fixpoint eval_expr (ρ : env) (e : M.expr) : option M.val :=
   | M.EVal v => Some v
   | M.EVar x => env_get ρ x
   | M.EAdd e1 e2 =>
-      match eval_expr ρ e1, eval_expr ρ e2 with
-      | Some v1, Some v2 => add_vals v1 v2
-      | _, _ => None
-      end
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => add_vals v1 v2
+    | _, _ => None
+    end
+  | M.ESub e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => sub_vals v1 v2
+    | _, _ => None
+    end
   | M.EMul e1 e2 =>
-      match eval_expr ρ e1, eval_expr ρ e2 with
-      | Some v1, Some v2 => mul_vals v1 v2
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => mul_vals v1 v2
+    | _, _ => None
+    end
+  | M.EDiv e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => div_vals v1 v2
+    | _, _ => None
+    end
+  | M.ELt e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 =>
+      match lt_vals v1 v2 with
+      | Some b => Some (M.VBool b)
+      | None => None
+      end
+    | _, _ => None
+    end
+  | M.EEq e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 =>
+      match eq_vals v1 v2 with
+      | Some b => Some (M.VBool b)
+      | None => None
+      end
+    | _, _ => None
+    end
+  | M.EAnd e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 =>
+      match bool_of_val v1, bool_of_val v2 with
+      | Some b1, Some b2 => Some (M.VBool (andb b1 b2))
       | _, _ => None
       end
+    | _, _ => None
+    end
+  | M.ENot e1 =>
+    match eval_expr ρ e1 with
+    | Some v =>
+      match bool_of_val v with
+      | Some b => Some (M.VBool (negb b))
+      | None => None
+      end
+    | None => None
+    end
   | M.EPtrAdd base ofs =>
       match eval_expr ρ base, eval_expr ρ ofs with
       | Some (M.VU64 a), Some off =>
