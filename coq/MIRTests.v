@@ -123,15 +123,16 @@ Definition trace_saxpy_gen : list M.event_mir := fst (MR.run 10 cfg_saxpy_gen).
 
 Example saxpy_gen_events_ok :
   trace_saxpy_gen =
-    [ M.EvAssign "_5" (M.VI32 0%Z)
-    ; M.EvAssign "_7" (M.VI32 0%Z)
-    ; M.EvAssign "_6" (M.VBool true)
-    ; M.EvAssign "_9" (M.VI32 0%Z)
-    ; M.EvAssign "_8" (M.VI32 0%Z)
-    ; M.EvLoad M.TyF32 1000 (M.VF32 42%Z)
-    ; M.EvLoad M.TyF32 2000 (M.VF32 0%Z)
-    ; M.EvAssign "_14" (M.VF32 42%Z)
-    ; M.EvStore M.TyF32 2000 (M.VF32 42%Z)
+    [ M.EvAssign "_5" (saxpy_gen.M.VI32 0);
+      M.EvAssign "_7" (saxpy_gen.M.VI32 0);
+      M.EvAssign "_6" (MS.M.VBool true);
+      M.EvCond (saxpy_gen.M.EVar "_6") true;
+      M.EvAssign "_9" (saxpy_gen.M.VI32 0);
+      M.EvAssign "_8" (saxpy_gen.M.VI32 0);
+      M.EvLoad saxpy_gen.M.TyF32 1000 (M.VF32 42);
+      M.EvLoad saxpy_gen.M.TyF32 2000 (M.VF32 0);
+      M.EvAssign "_14" (MS.M.VF32 42);
+      M.EvStore saxpy_gen.M.TyF32 2000 (MS.M.VF32 42)
     ].
 Proof. reflexivity. Qed.
 

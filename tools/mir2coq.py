@@ -255,6 +255,15 @@ class LoopStmt(Stmt):
         return f"M.SLoop {render_stmt_block(self.body)}"
 
 
+@dataclasses.dataclass
+class WhileStmt(Stmt):
+    cond: Expr
+    body: List[Stmt]
+
+    def to_coq(self) -> str:
+        return f"M.SWhile ({self.cond.to_coq()}) {render_stmt_block(self.body)}"
+
+
 def render_stmt_block(stmts: Sequence[Stmt]) -> str:
     if not stmts:
         return "[]"
@@ -801,7 +810,7 @@ class MIRTranslator:
                 return False
             if loop_stop_label != header_label:
                 return False
-            stmts.append(LoopStmt(body=loop_body))
+            stmts.append(WhileStmt(cond=terminator.cond, body=loop_body))
             return True
         finally:
             self._loop_headers_in_progress.discard(header_label)

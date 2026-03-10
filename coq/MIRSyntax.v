@@ -46,6 +46,7 @@ Inductive stmt :=
 | SAtomicStoreRelease (ptr : expr) (rhs : expr) (ty : mir_ty)
 | SBarrier
 | SIf (cond : expr) (then_branch else_branch : list stmt)
+| SWhile (cond : expr) (body : list stmt)
 | SLoop (body : list stmt)
 | SSeq (body : list stmt).
 

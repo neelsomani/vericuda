@@ -21,7 +21,7 @@ Definition prog : list M.stmt :=
     M.SIf (M.EVar "_33") [ M.SAssign "_34" (M.ELt (M.EVar "_25") (M.EVar "_5"));
       M.SIf (M.EVar "_34") [ M.SAssign "_35" (M.EVal (M.VF32 0));
       M.SAssign "_38" (M.EVar "_36");
-      M.SLoop [ M.SAssign "_46" (M.EVar "_47");
+      M.SWhile (M.EVar "_41") [ M.SAssign "_46" (M.EVar "_47");
       M.SAssign "_48" (M.EAdd (M.EVar "_46") (M.EVar "_42"));
       M.SAssign "_45" (M.EVar "_48");
       M.SAssign "_50" (M.ELt (M.EVar "_45") (M.EVar "_49"));
