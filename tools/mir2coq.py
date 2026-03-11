@@ -349,6 +349,9 @@ RE_PTR_ADD = re.compile(
 RE_REF_DEREF = re.compile(
     r"^\s*(?P<dst>{ident})\s*=\s*&\(\*(?P<src>{ident})\)".format(ident=IDENT)
 )
+RE_REF_BIND = re.compile(
+    r"^\s*(?P<dst>{ident})\s*=\s*&(?:mut\s+)?(?P<src>{ident})".format(ident=IDENT)
+)
 RE_LOAD = re.compile(
     r"^\s*(?P<dst>{ident})\s*=\s*(?:copy|move)\s*\(\*(?P<ptr>{ident})\)".format(ident=IDENT)
 )
@@ -535,6 +538,19 @@ def parse_expr(src: str) -> Expr:
         args = split_args(inner)
         if len(args) == 2:
             return Add(parse_expr(args[0]), parse_expr(args[1]))
+    if src.startswith("MulWithOverflow(") and src.endswith(")"):
+        inner = src[len("MulWithOverflow") + 1 : -1]
+        args = split_args(inner)
+        if len(args) == 2:
+            return Mul(parse_expr(args[0]), parse_expr(args[1]))
+    if src.startswith("discriminant(") and src.endswith(")"):
+        inner = src[len("discriminant") + 1 : -1]
+        return parse_expr(inner)
+    if "::next(" in src and src.endswith(")"):
+        inner = src[src.rfind("(") + 1 : -1]
+        args = split_args(inner)
+        if args:
+            return parse_expr(args[0])
     for ctor, cls in (
         ("Add", Add),
         ("Sub", Sub),
@@ -874,19 +890,32 @@ class MIRTranslator:
             if len(args) >= 2:
                 base_expr = parse_operand(args[0])
                 offset_expr = parse_operand(args[1])
-                state.derived_exprs[dst] = PtrAdd(base_expr, offset_expr)
+                ptr_expr = PtrAdd(base_expr, offset_expr)
+                state.derived_exprs[dst] = ptr_expr
                 if isinstance(base_expr, Var) and base_expr.name in state.ptr_targets:
                     state.ptr_targets[dst] = state.ptr_targets[base_expr.name]
+                return AssignStmt(dst=dst, expr=ptr_expr)
             return None
 
         m_ref = RE_REF_DEREF.match(line)
         if m_ref:
             dst = m_ref.group("dst")
             src = m_ref.group("src")
-            state.derived_exprs[dst] = Var(src)
+            bound = Var(src)
+            state.derived_exprs[dst] = bound
             if src in state.ptr_targets:
                 state.ptr_targets[dst] = state.ptr_targets[src]
-            return None
+            return AssignStmt(dst=dst, expr=bound)
+
+        m_ref_bind = RE_REF_BIND.match(line)
+        if m_ref_bind:
+            dst = m_ref_bind.group("dst")
+            src = m_ref_bind.group("src")
+            bound = Var(src)
+            state.derived_exprs[dst] = bound
+            if src in state.ptr_targets:
+                state.ptr_targets[dst] = state.ptr_targets[src]
+            return AssignStmt(dst=dst, expr=bound)
 
         m_load = RE_LOAD.match(line)
         if m_load:
@@ -937,9 +966,7 @@ class MIRTranslator:
             dst = m_assign.group("dst")
             rhs = m_assign.group("rhs").rstrip(";")
             expr = parse_expr(rhs)
-            if is_supported_expr(expr):
-                return AssignStmt(dst=dst, expr=expr)
-            return None
+            return AssignStmt(dst=dst, expr=expr)
 
         if RE_BARRIER.search(line):
             return BarrierStmt()
