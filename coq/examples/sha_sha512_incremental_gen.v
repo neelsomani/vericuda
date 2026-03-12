@@ -9,7 +9,10 @@ Module MC := MIRConstants.
 Module Sha_sha512_incremental_gen.
 
 Definition prog : list M.stmt :=
-  [ M.SAssign "_5" (M.EVar "_6");
+  [ M.SAssign "_3" (M.EVal (M.VBool true));
+    M.SAssign "_4" (M.EVal (M.VBool true));
+    M.SAssign "_6" (M.EVar "CUDA_index_1d");
+    M.SAssign "_5" (M.EVar "_6");
     M.SIf (M.EVar "_5") [] [];
     M.SAssign "_9" (M.EVar "_7");
     M.SAssign "_11" (M.EVar "_7");

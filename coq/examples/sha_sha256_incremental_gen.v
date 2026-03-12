@@ -9,7 +9,11 @@ Module MC := MIRConstants.
 Module Sha_sha256_incremental_gen.
 
 Definition prog : list M.stmt :=
-  [ M.SAssign "_7" (M.EVar "_8");
+  [ M.SAssign "_4" (M.EVal (M.VBool true));
+    M.SAssign "_5" (M.EVal (M.VBool true));
+    M.SAssign "_6" (M.EVal (M.VBool true));
+    M.SAssign "_8" (M.EVar "CUDA_index_1d");
+    M.SAssign "_7" (M.EVar "_8");
     M.SIf (M.EVar "_7") [] [];
     M.SAssign "_11" (M.EVar "_9");
     M.SAssign "_13" (M.EVar "_9");

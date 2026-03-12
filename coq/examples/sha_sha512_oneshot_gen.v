@@ -9,7 +9,10 @@ Module MC := MIRConstants.
 Module Sha_sha512_oneshot_gen.
 
 Definition prog : list M.stmt :=
-  [ M.SAssign "_5" (M.EVar "_6");
+  [ M.SAssign "_3" (M.EVal (M.VBool true));
+    M.SAssign "_4" (M.EVal (M.VBool true));
+    M.SAssign "_6" (M.EVar "CUDA_index_1d");
+    M.SAssign "_5" (M.EVar "_6");
     M.SIf (M.EVar "_5") [] [];
     M.SAssign "_13" (M.EVar "_2");
     M.SAssign "_14" (M.EVar "_13");

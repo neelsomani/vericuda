@@ -32,9 +32,13 @@ Inductive expr :=
 | ESub (lhs rhs : expr)
 | EMul (lhs rhs : expr)
 | EDiv (lhs rhs : expr)
+| ERem (lhs rhs : expr)
 | ELt (lhs rhs : expr)
 | EEq (lhs rhs : expr)
 | EAnd (lhs rhs : expr)
+| EXor (lhs rhs : expr)
+| EShl (lhs rhs : expr)
+| EShr (lhs rhs : expr)
 | ENot (arg : expr)
 | EPtrAdd (base ofs : expr).
 
@@ -75,5 +79,9 @@ Definition const_TILE_SIZE_2D : M.val := M.VU64 256%Z.
 Definition const_gemm_tiled_TILE_SIZE : M.val := M.VU64 16%Z.
 
 Definition const_gemm_tiled_TILE_SIZE_2D : M.val := M.VU64 256%Z.
+
+Definition const_ALIGNOF_u128 : M.val := M.VU64 16%Z.
+
+Definition const_SIZEOF_u128 : M.val := M.VU64 16%Z.
 
 End MIRConstants.

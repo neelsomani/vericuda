@@ -43,6 +43,9 @@ class Expr:
     def to_coq(self) -> str:
         raise NotImplementedError
 
+    def has_unresolved_expr(self) -> bool:
+        return False
+
 
 @dataclasses.dataclass
 class Var(Expr):
@@ -50,6 +53,9 @@ class Var(Expr):
 
     def to_coq(self) -> str:
         return f'M.EVar "{self.name}"'
+
+    def has_unresolved_expr(self) -> bool:
+        return re.fullmatch(IDENT, self.name) is None
 
 
 @dataclasses.dataclass
@@ -86,6 +92,9 @@ class Add(Expr):
     def to_coq(self) -> str:
         return f"M.EAdd ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
 
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class Sub(Expr):
@@ -94,6 +103,9 @@ class Sub(Expr):
 
     def to_coq(self) -> str:
         return f"M.ESub ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -104,6 +116,9 @@ class Mul(Expr):
     def to_coq(self) -> str:
         return f"M.EMul ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
 
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class Div(Expr):
@@ -112,6 +127,21 @@ class Div(Expr):
 
     def to_coq(self) -> str:
         return f"M.EDiv ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class Rem(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.ERem ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -122,6 +152,9 @@ class Lt(Expr):
     def to_coq(self) -> str:
         return f"M.ELt ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
 
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class Eq(Expr):
@@ -130,6 +163,9 @@ class Eq(Expr):
 
     def to_coq(self) -> str:
         return f"M.EEq ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -140,6 +176,45 @@ class BitAnd(Expr):
     def to_coq(self) -> str:
         return f"M.EAnd ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
 
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class BitXor(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EXor ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class Shl(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EShl ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class Shr(Expr):
+    lhs: Expr
+    rhs: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EShr ({self.lhs.to_coq()}) ({self.rhs.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.lhs.has_unresolved_expr() or self.rhs.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class Not(Expr):
@@ -147,6 +222,9 @@ class Not(Expr):
 
     def to_coq(self) -> str:
         return f"M.ENot ({self.arg.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.arg.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -157,6 +235,9 @@ class PtrAdd(Expr):
     def to_coq(self) -> str:
         return f"M.EPtrAdd ({self.base.to_coq()}) ({self.offset.to_coq()})"
 
+    def has_unresolved_expr(self) -> bool:
+        return self.base.has_unresolved_expr() or self.offset.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class SymbolConst(Expr):
@@ -164,6 +245,19 @@ class SymbolConst(Expr):
 
     def to_coq(self) -> str:
         return f"M.EVal (MC.const_{self.name})"
+
+
+@dataclasses.dataclass
+class CudaVar(Expr):
+    """A CUDA intrinsic input (block_dim_x, thread_idx_y, …).
+
+    Treated as a symbolic variable whose value is supplied by the environment;
+    never flagged as unresolved.
+    """
+    name: str
+
+    def to_coq(self) -> str:
+        return f'M.EVar "CUDA_{self.name}"'
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +268,9 @@ class Stmt:
     def to_coq(self) -> str:
         raise NotImplementedError
 
+    def has_unresolved_expr(self) -> bool:
+        return False
+
 
 @dataclasses.dataclass
 class AssignStmt(Stmt):
@@ -182,6 +279,9 @@ class AssignStmt(Stmt):
 
     def to_coq(self) -> str:
         return f'M.SAssign "{self.dst}" ({self.expr.to_coq()})'
+
+    def has_unresolved_expr(self) -> bool:
+        return self.expr.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -193,6 +293,9 @@ class LoadStmt(Stmt):
     def to_coq(self) -> str:
         return f'M.SLoad "{self.dst}" ({self.addr.to_coq()}) M.{self.ty}'
 
+    def has_unresolved_expr(self) -> bool:
+        return self.addr.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class StoreStmt(Stmt):
@@ -202,6 +305,9 @@ class StoreStmt(Stmt):
 
     def to_coq(self) -> str:
         return f'M.SStore ({self.addr.to_coq()}) ({self.value.to_coq()}) M.{self.ty}'
+
+    def has_unresolved_expr(self) -> bool:
+        return self.addr.has_unresolved_expr() or self.value.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -215,6 +321,9 @@ class AtomicLoadStmt(Stmt):
             f'M.SAtomicLoadAcquire "{self.dst}" ({self.addr.to_coq()}) M.{self.ty}'
         )
 
+    def has_unresolved_expr(self) -> bool:
+        return self.addr.has_unresolved_expr()
+
 
 @dataclasses.dataclass
 class AtomicStoreStmt(Stmt):
@@ -226,6 +335,9 @@ class AtomicStoreStmt(Stmt):
         return (
             f'M.SAtomicStoreRelease ({self.addr.to_coq()}) ({self.value.to_coq()}) M.{self.ty}'
         )
+
+    def has_unresolved_expr(self) -> bool:
+        return self.addr.has_unresolved_expr() or self.value.has_unresolved_expr()
 
 
 @dataclasses.dataclass
@@ -246,6 +358,13 @@ class IfStmt(Stmt):
             f"{render_stmt_block(self.else_branch)}"
         )
 
+    def has_unresolved_expr(self) -> bool:
+        if self.cond.has_unresolved_expr():
+            return True
+        return any(stmt.has_unresolved_expr() for stmt in self.then_branch) or any(
+            stmt.has_unresolved_expr() for stmt in self.else_branch
+        )
+
 
 @dataclasses.dataclass
 class LoopStmt(Stmt):
@@ -253,6 +372,9 @@ class LoopStmt(Stmt):
 
     def to_coq(self) -> str:
         return f"M.SLoop {render_stmt_block(self.body)}"
+
+    def has_unresolved_expr(self) -> bool:
+        return any(stmt.has_unresolved_expr() for stmt in self.body)
 
 
 @dataclasses.dataclass
@@ -262,6 +384,11 @@ class WhileStmt(Stmt):
 
     def to_coq(self) -> str:
         return f"M.SWhile ({self.cond.to_coq()}) {render_stmt_block(self.body)}"
+
+    def has_unresolved_expr(self) -> bool:
+        if self.cond.has_unresolved_expr():
+            return True
+        return any(stmt.has_unresolved_expr() for stmt in self.body)
 
 
 def render_stmt_block(stmts: Sequence[Stmt]) -> str:
@@ -297,6 +424,14 @@ SYMBOLIC_CONSTS = {
     "TILE_SIZE_2D": "TILE_SIZE_2D",
     "gemm_tiled::TILE_SIZE": "gemm_tiled_TILE_SIZE",
     "gemm_tiled::TILE_SIZE_2D": "gemm_tiled_TILE_SIZE_2D",
+}
+
+CUDA_INTRINSICS: Set[str] = {
+    "block_dim_x", "block_dim_y", "block_dim_z",
+    "block_idx_x", "block_idx_y", "block_idx_z",
+    "thread_idx_x", "thread_idx_y", "thread_idx_z",
+    "grid_dim_x", "grid_dim_y", "grid_dim_z",
+    "index_1d",
 }
 
 
@@ -544,7 +679,7 @@ class LibFuncParser:
     def match(self, call: FuncCall) -> bool:
         raise NotImplementedError
 
-    def parse(self, call: FuncCall) -> Optional[Expr]:
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         raise NotImplementedError
 
 
@@ -556,10 +691,10 @@ class NamedBinaryParser(LibFuncParser):
     def match(self, call: FuncCall) -> bool:
         return call.name == self.name
 
-    def parse(self, call: FuncCall) -> Optional[Expr]:
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         if len(call.args) != 2:
             return None
-        return self.expr_cls(parse_expr(call.args[0]), parse_expr(call.args[1]))
+        return self.expr_cls(parse_expr(call.args[0], warnings), parse_expr(call.args[1], warnings))
 
 
 class NamedUnaryParser(LibFuncParser):
@@ -570,10 +705,10 @@ class NamedUnaryParser(LibFuncParser):
     def match(self, call: FuncCall) -> bool:
         return call.name == self.name
 
-    def parse(self, call: FuncCall) -> Optional[Expr]:
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         if len(call.args) != 1:
             return None
-        return self.ctor(parse_expr(call.args[0]))
+        return self.ctor(parse_expr(call.args[0], warnings))
 
 
 class IteratorNextParser(LibFuncParser):
@@ -581,10 +716,103 @@ class IteratorNextParser(LibFuncParser):
     def match(self, call: FuncCall) -> bool:
         return call.name.endswith("::next")
 
-    def parse(self, call: FuncCall) -> Optional[Expr]:
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         if not call.args:
             return None
-        return parse_expr(call.args[0])
+        return parse_expr(call.args[0], warnings)
+
+
+@dataclasses.dataclass
+class SuffixBinaryParser(LibFuncParser):
+    """Matches call names by suffix; maps to a binary expr class."""
+    suffix: str
+    expr_cls: type
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name.endswith(self.suffix)
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        if len(call.args) != 2:
+            return None
+        return self.expr_cls(parse_expr(call.args[0], warnings), parse_expr(call.args[1], warnings))
+
+
+@dataclasses.dataclass
+class NamedRewriteParser(LibFuncParser):
+    name: str
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name == self.name
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        if len(call.args) != 2:
+            return None
+        lhs = parse_expr(call.args[0], warnings)
+        rhs = parse_expr(call.args[1], warnings)
+        if self.name == "Ge":
+            return Not(Lt(lhs, rhs))
+        if self.name == "Ne":
+            return Not(Eq(lhs, rhs))
+        return None
+
+
+@dataclasses.dataclass
+class NamedUnaryIdentityParser(LibFuncParser):
+    name: str
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name == self.name
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        if len(call.args) != 1:
+            return None
+        return parse_expr(call.args[0], warnings)
+
+
+@dataclasses.dataclass
+class UndefFunctionParser(LibFuncParser):
+    """Parser for functions with undefined/opaque semantics mapped to a fixed return value."""
+    name_fragment: str
+    ret: Expr
+
+    def match(self, call: FuncCall) -> bool:
+        return self.name_fragment in call.name
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        warnings.append(f"[undef] {call.name} treated as {self.ret.to_coq()}")
+        return self.ret
+
+
+class CudaIntrinsicParser(LibFuncParser):
+    """Maps zero-argument CUDA built-in reads to CudaVar symbolic inputs."""
+
+    @staticmethod
+    def _bare_name(call: FuncCall) -> Optional[str]:
+        bare = call.name.split("::")[-1]
+        return bare if bare in CUDA_INTRINSICS else None
+
+    def match(self, call: FuncCall) -> bool:
+        return self._bare_name(call) is not None
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        return CudaVar(self._bare_name(call))
+
+
+@dataclasses.dataclass
+class TypeConstParser(LibFuncParser):
+    name: str
+    prefix: str
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name == self.name
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        if len(call.args) != 1:
+            return None
+        ty = call.args[0].strip().replace(" ", "")
+        if ty == "u128":
+            return SymbolConst(name=f"{self.prefix}_u128")
+        return None
 
 
 class IdentityFuncParser(LibFuncParser):
@@ -594,10 +822,10 @@ class IdentityFuncParser(LibFuncParser):
     def match(self, call: FuncCall) -> bool:
         return call.name.endswith(self.suffix)
 
-    def parse(self, call: FuncCall) -> Optional[Expr]:
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         if len(call.args) != 1:
             return None
-        return parse_expr(call.args[0])
+        return parse_expr(call.args[0], warnings)
 
 
 class OpaqueFuncParser(LibFuncParser):
@@ -607,7 +835,7 @@ class OpaqueFuncParser(LibFuncParser):
     def match(self, call: FuncCall) -> bool:
         return self.predicate(call.name)
 
-    def parse(self, call: FuncCall) -> Optional[Expr]:
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         return None
 
 
@@ -639,35 +867,51 @@ def parse_func_call(src: str) -> Optional[FuncCall]:
 
 
 FUNC_PARSERS: List[LibFuncParser] = [
+    CudaIntrinsicParser(),
+    UndefFunctionParser("assert_kernel_parameter_is_copy", BoolConst(True)),
     NamedBinaryParser("AddWithOverflow", Add),
     NamedBinaryParser("MulWithOverflow", Mul),
     NamedUnaryParser("discriminant", lambda arg: arg),
     IteratorNextParser(),
     IdentityFuncParser("::into_iter"),
+    NamedUnaryIdentityParser("PtrMetadata"),
+    TypeConstParser("AlignOf", "ALIGNOF"),
+    TypeConstParser("SizeOf", "SIZEOF"),
+    NamedRewriteParser("Ge"),
+    NamedRewriteParser("Ne"),
     NamedBinaryParser("Add", Add),
     NamedBinaryParser("Sub", Sub),
     NamedBinaryParser("Mul", Mul),
     NamedBinaryParser("Div", Div),
+    NamedBinaryParser("Rem", Rem),
     NamedBinaryParser("Lt", Lt),
     NamedBinaryParser("Eq", Eq),
     NamedBinaryParser("BitAnd", BitAnd),
+    NamedBinaryParser("BitXor", BitXor),
+    SuffixBinaryParser("::wrapping_add", Add),
+    SuffixBinaryParser("::wrapping_sub", Sub),
+    SuffixBinaryParser("::wrapping_mul", Mul),
+    SuffixBinaryParser("::wrapping_shl", Shl),
+    SuffixBinaryParser("::wrapping_shr", Shr),
     NamedUnaryParser("Not", Not),
 ]
 
 
-def parse_func(src: str) -> Optional[Expr]:
+def parse_func(src: str, warnings: List[str]) -> Optional[Expr]:
     call = parse_func_call(src)
     if call is None:
         return None
     for parser in FUNC_PARSERS:
         if parser.match(call):
-            parsed = parser.parse(call)
+            parsed = parser.parse(call, warnings)
             if parsed is not None:
                 return parsed
     return None
 
 
-def parse_expr(src: str) -> Expr:
+def parse_expr(src: str, warnings: Optional[List[str]] = None) -> Expr:
+    if warnings is None:
+        warnings = []
     token = src.strip()
     normalized = token
     if normalized.startswith("copy ") or normalized.startswith("move "):
@@ -676,46 +920,10 @@ def parse_expr(src: str) -> Expr:
     m_some = RE_SOME_FIELD.match(normalized)
     if m_some:
         return Var(m_some.group("base"))
-    parsed = parse_func(token)
+    parsed = parse_func(token, warnings)
     if parsed is not None:
         return parsed
     return parse_operand(token)
-
-
-def is_supported_expr(expr: Expr) -> bool:
-    if isinstance(expr, Var):
-        return re.fullmatch(IDENT, expr.name) is not None
-    if isinstance(expr, (Const, BoolConst, SymbolConst, Add, Sub, Mul, Div, PtrAdd, Lt, Eq, BitAnd, Not)):
-        return True
-    return False
-
-
-def expr_has_unresolved_var(expr: Expr) -> bool:
-    if isinstance(expr, Var):
-        return re.fullmatch(IDENT, expr.name) is None
-    if isinstance(expr, (Const, BoolConst, SymbolConst)):
-        return False
-    if isinstance(expr, (Add, Sub, Mul, Div, Lt, Eq, BitAnd)):
-        return expr_has_unresolved_var(expr.lhs) or expr_has_unresolved_var(expr.rhs)
-    if isinstance(expr, PtrAdd):
-        return expr_has_unresolved_var(expr.base) or expr_has_unresolved_var(expr.offset)
-    if isinstance(expr, Not):
-        return expr_has_unresolved_var(expr.arg)
-    return False
-
-
-def stmt_has_unresolved_expr(stmt: Stmt) -> bool:
-    if isinstance(stmt, AssignStmt):
-        return expr_has_unresolved_var(stmt.expr)
-    if isinstance(stmt, StoreStmt):
-        return expr_has_unresolved_var(stmt.addr) or expr_has_unresolved_var(stmt.value)
-    if isinstance(stmt, LoadStmt):
-        return expr_has_unresolved_var(stmt.addr)
-    if isinstance(stmt, AtomicLoadStmt):
-        return expr_has_unresolved_var(stmt.addr)
-    if isinstance(stmt, AtomicStoreStmt):
-        return expr_has_unresolved_var(stmt.addr) or expr_has_unresolved_var(stmt.value)
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -1015,7 +1223,7 @@ class MIRTranslator:
             stmt_line = strip_control_suffix(line)
             stmt = self._parse_statement(stmt_line, state)
             if stmt:
-                if stmt_has_unresolved_expr(stmt):
+                if stmt.has_unresolved_expr():
                     self.warnings.append(
                         f"[{block.label}] parse failed (non _<digits> variable or unsupported expr): {stmt_line}"
                     )
@@ -1082,7 +1290,7 @@ class MIRTranslator:
             elem_ty = state.ptr_targets.get(ptr, "TyU32")
             return StoreStmt(
                 addr=addr_expr,
-                value=parse_expr(rhs.rstrip(";")),
+                value=parse_expr(rhs.rstrip(";"), self.warnings),
                 ty=elem_ty,
             )
 
@@ -1105,7 +1313,7 @@ class MIRTranslator:
                 print(f"error: unsupported atomic store ordering in line: {line}", file=sys.stderr)
                 sys.exit(2)
             addr_expr = parse_operand(args[0])
-            val_expr = parse_expr(args[1])
+            val_expr = parse_expr(args[1], self.warnings)
             ptr_name = operand_base(args[0])
             ty = state.ptr_targets.get(ptr_name or "", "TyU32")
             return AtomicStoreStmt(addr=addr_expr, value=val_expr, ty=ty)
@@ -1114,7 +1322,7 @@ class MIRTranslator:
         if m_assign:
             dst = m_assign.group("dst")
             rhs = m_assign.group("rhs").rstrip(";")
-            expr = parse_expr(rhs)
+            expr = parse_expr(rhs, self.warnings)
             return AssignStmt(dst=dst, expr=expr)
 
         if RE_BARRIER.search(line):

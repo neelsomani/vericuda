@@ -9,13 +9,27 @@ Module MC := MIRConstants.
 Module Gemm_gemm_naive_gen.
 
 Definition prog : list M.stmt :=
-  [ M.SAssign "_22" (M.EMul (M.EVar "_20") (M.EVar "_21"));
+  [ M.SAssign "_9" (M.EVal (M.VBool true));
+    M.SAssign "_10" (M.EVal (M.VBool true));
+    M.SAssign "_11" (M.EVal (M.VBool true));
+    M.SAssign "_12" (M.EVal (M.VBool true));
+    M.SAssign "_13" (M.EVal (M.VBool true));
+    M.SAssign "_14" (M.EVal (M.VBool true));
+    M.SAssign "_15" (M.EVal (M.VBool true));
+    M.SAssign "_16" (M.EVal (M.VBool true));
+    M.SAssign "_20" (M.EVar "CUDA_block_dim_x");
+    M.SAssign "_21" (M.EVar "CUDA_block_idx_x");
+    M.SAssign "_22" (M.EMul (M.EVar "_20") (M.EVar "_21"));
     M.SAssign "_19" (M.EVar "_22");
+    M.SAssign "_23" (M.EVar "CUDA_thread_idx_x");
     M.SAssign "_24" (M.EAdd (M.EVar "_19") (M.EVar "_23"));
     M.SAssign "_18" (M.EVar "_24");
     M.SAssign "_17" (M.EVar "_18");
+    M.SAssign "_28" (M.EVar "CUDA_block_dim_y");
+    M.SAssign "_29" (M.EVar "CUDA_block_idx_y");
     M.SAssign "_30" (M.EMul (M.EVar "_28") (M.EVar "_29"));
     M.SAssign "_27" (M.EVar "_30");
+    M.SAssign "_31" (M.EVar "CUDA_thread_idx_y");
     M.SAssign "_32" (M.EAdd (M.EVar "_27") (M.EVar "_31"));
     M.SAssign "_26" (M.EVar "_32");
     M.SAssign "_25" (M.EVar "_26");
@@ -32,12 +46,14 @@ Definition prog : list M.stmt :=
       M.SAssign "_46" (M.EVar "_47");
       M.SAssign "_48" (M.EAdd (M.EVar "_46") (M.EVar "_42"));
       M.SAssign "_45" (M.EVar "_48");
+      M.SAssign "_49" (M.EVar "_1");
       M.SAssign "_50" (M.ELt (M.EVar "_45") (M.EVar "_49"));
       M.SLoad "_44" (M.EVar "_1") M.TyF32;
       M.SAssign "_54" (M.EMul (M.EVar "_42") (M.EVar "_5"));
       M.SAssign "_53" (M.EVar "_54");
       M.SAssign "_55" (M.EAdd (M.EVar "_53") (M.EVar "_25"));
       M.SAssign "_52" (M.EVar "_55");
+      M.SAssign "_56" (M.EVar "_2");
       M.SAssign "_57" (M.ELt (M.EVar "_52") (M.EVar "_56"));
       M.SLoad "_51" (M.EVar "_2") M.TyF32;
       M.SAssign "_43" (M.EMul (M.EVar "_44") (M.EVar "_51"));

@@ -86,6 +86,38 @@ Definition div_vals (v1 v2 : M.val) : option M.val :=
   | _, _ => None
   end.
 
+Definition rem_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => if Z.eqb y 0 then None else Some (M.VI32 (Z.rem x y))
+  | M.VU32 x, M.VU32 y => if Z.eqb y 0 then None else Some (M.VU32 (Z.rem x y))
+  | M.VU64 x, M.VU64 y => if Z.eqb y 0 then None else Some (M.VU64 (Z.rem x y))
+  | _, _ => None
+  end.
+
+Definition xor_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (Z.lxor x y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (Z.lxor x y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (Z.lxor x y))
+  | _, _ => None
+  end.
+
+Definition shl_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (Z.shiftl x y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (Z.shiftl x y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (Z.shiftl x y))
+  | _, _ => None
+  end.
+
+Definition shr_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (Z.shiftr x y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (Z.shiftr x y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (Z.shiftr x y))
+  | _, _ => None
+  end.
+
 Definition int_of_val (v : M.val) : option Z :=
   match v with
   | M.VI32 z => Some z
@@ -145,6 +177,11 @@ Fixpoint eval_expr (ρ : env) (e : M.expr) : option M.val :=
     | Some v1, Some v2 => div_vals v1 v2
     | _, _ => None
     end
+  | M.ERem e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => rem_vals v1 v2
+    | _, _ => None
+    end
   | M.ELt e1 e2 =>
     match eval_expr ρ e1, eval_expr ρ e2 with
     | Some v1, Some v2 =>
@@ -170,6 +207,21 @@ Fixpoint eval_expr (ρ : env) (e : M.expr) : option M.val :=
       | Some b1, Some b2 => Some (M.VBool (andb b1 b2))
       | _, _ => None
       end
+    | _, _ => None
+    end
+  | M.EXor e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => xor_vals v1 v2
+    | _, _ => None
+    end
+  | M.EShl e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => shl_vals v1 v2
+    | _, _ => None
+    end
+  | M.EShr e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => shr_vals v1 v2
     | _, _ => None
     end
   | M.ENot e1 =>
