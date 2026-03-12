@@ -36,12 +36,12 @@ Definition prog : list M.stmt :=
     M.SAssign "_33" (M.ELt (M.EVar "_17") (M.EVar "_4"));
     M.SIf (M.EVar "_33") [ M.SAssign "_34" (M.ELt (M.EVar "_25") (M.EVar "_5"));
       M.SIf (M.EVar "_34") [ M.SAssign "_35" (M.EVal (M.VF32 0));
+      M.SAssign "_37" (M.ERange (M.EVal (M.VU64 0)) (M.EVar "_6"));
       M.SAssign "_36" (M.EVar "_37");
       M.SAssign "_38" (M.EVar "_36");
       M.SAssign "_40" (M.EVar "_38");
-      M.SAssign "_39" (M.EVar "_40");
-      M.SAssign "_41" (M.EVar "_39");
-      M.SWhile (M.EVar "_41") [ M.SAssign "_42" (M.EVar "_39");
+      M.SAssign "_39" (M.ENext (M.EVar "_40"));
+      M.SWhile (M.EDiscriminant (M.EVar "_39")) [ M.SAssign "_42" (M.EOptionGet (M.EVar "_39"));
       M.SAssign "_47" (M.EMul (M.EVar "_17") (M.EVar "_6"));
       M.SAssign "_46" (M.EVar "_47");
       M.SAssign "_48" (M.EAdd (M.EVar "_46") (M.EVar "_42"));
@@ -59,7 +59,7 @@ Definition prog : list M.stmt :=
       M.SAssign "_43" (M.EMul (M.EVar "_44") (M.EVar "_51"));
       M.SAssign "_35" (M.EAdd (M.EVar "_35") (M.EVar "_43"));
       M.SAssign "_40" (M.EVar "_38");
-      M.SAssign "_39" (M.EVar "_40") ];
+      M.SAssign "_39" (M.ENext (M.EVar "_40")) ];
       M.SAssign "_62" (M.EMul (M.EVar "_17") (M.EVar "_5"));
       M.SAssign "_61" (M.EVar "_62");
       M.SAssign "_63" (M.EAdd (M.EVar "_61") (M.EVar "_25"));

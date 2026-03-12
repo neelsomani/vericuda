@@ -8,8 +8,29 @@ import struct
 from typing import Dict, List, Optional
 
 from .ast_expr import (
-    Add, BitAnd, BitXor, BoolConst, Const, CudaVar, Div, Eq, Expr,
-    Lt, Mul, Not, PtrAdd, Rem, Shl, Shr, Sub, SymbolConst, Var,
+    Add,
+    BitAnd,
+    BitXor,
+    BoolConst,
+    Const,
+    CudaVar,
+    DiscriminantExpr,
+    Div,
+    Eq,
+    Expr,
+    Lt,
+    Mul,
+    NextExpr,
+    Not,
+    OptionGetExpr,
+    PtrAdd,
+    RangeExpr,
+    Rem,
+    Shl,
+    Shr,
+    Sub,
+    SymbolConst,
+    Var,
     format_z_literal,
 )
 from .types import CUDA_INTRINSICS, SYMBOLIC_CONSTS
@@ -182,7 +203,7 @@ class IteratorNextParser(LibFuncParser):
     def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         if not call.args:
             return None
-        return parse_expr(call.args[0], warnings)
+        return NextExpr(parse_expr(call.args[0], warnings))
 
 
 @dataclasses.dataclass
@@ -309,7 +330,7 @@ FUNC_PARSERS: List[LibFuncParser] = [
     UndefFunctionParser("assert_kernel_parameter_is_copy", BoolConst(True)),
     NamedBinaryParser("AddWithOverflow", Add),
     NamedBinaryParser("MulWithOverflow", Mul),
-    NamedUnaryParser("discriminant", lambda arg: arg),
+    NamedUnaryParser("discriminant", DiscriminantExpr),
     IteratorNextParser(),
     IdentityFuncParser("::into_iter"),
     NamedUnaryIdentityParser("PtrMetadata"),
@@ -376,13 +397,23 @@ def parse_expr(src: str, warnings: Optional[List[str]] = None) -> Expr:
     if warnings is None:
         warnings = []
     token = src.strip()
+    m_range = re.match(
+        r"^std::ops::Range::<[^>]+>\s*\{\s*start:\s*(?P<start>.+),\s*end:\s*(?P<end>.+)\s*\}$",
+        token,
+    )
+    if m_range:
+        return RangeExpr(
+            start=parse_expr(m_range.group("start"), warnings),
+            end=parse_expr(m_range.group("end"), warnings),
+        )
+
     normalized = token
     if normalized.startswith("copy ") or normalized.startswith("move "):
         normalized = normalized.split(None, 1)[1].strip()
     normalized = strip_wrapped_parens(normalized)
     m_some = re.match(r"^\(?(?P<base>_[0-9]+)\s+as\s+Some\)?\.0:\s+.+$", normalized)
     if m_some:
-        return Var(m_some.group("base"))
+        return OptionGetExpr(Var(m_some.group("base")))
     parsed = parse_func(token, warnings)
     if parsed is not None:
         return parsed

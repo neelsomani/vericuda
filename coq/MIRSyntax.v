@@ -20,7 +20,10 @@ Inductive val :=
 | VU32 (z : Z)
 | VF32 (bits : Z)
 | VU64 (addr : Z)
-| VBool (b : bool).
+| VBool (b : bool)
+| VOptionNone
+| VOptionSome (v : val)
+| VRange (cur end_ : Z).
 
 Definition var := string.
 Definition addr := Z.
@@ -40,6 +43,10 @@ Inductive expr :=
 | EShl (lhs rhs : expr)
 | EShr (lhs rhs : expr)
 | ENot (arg : expr)
+| ERange (start end_ : expr)
+| ENext (iter : expr)
+| EDiscriminant (arg : expr)
+| EOptionGet (arg : expr)
 | EPtrAdd (base ofs : expr).
 
 Inductive stmt :=

@@ -4,6 +4,7 @@ CARGO ?= cargo
 
 STAMP_DIR ?= stamps
 EXAMPLE_DIR := examples
+LOG_DIR := log
 COQ_DIR := coq
 COQ_EXAMPLE_DIR := $(COQ_DIR)/examples
 CARGO_PKG_PREFIX := cuq_example_
@@ -95,6 +96,6 @@ bad-test-%: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py $(STAMP_DIR)/%.s
 	done
 
 clean:
-	rm -rf $(STAMP_DIR) $(COQ_EXAMPLE_DIR) $(EXAMPLE_DIR)/*/target $(EXAMPLE_DIR)/*/mir_dump
+	rm -rf $(STAMP_DIR) $(COQ_EXAMPLE_DIR) $(EXAMPLE_DIR)/*/target $(EXAMPLE_DIR)/*/mir_dump $(LOG_DIR)/*
 
 all: demo

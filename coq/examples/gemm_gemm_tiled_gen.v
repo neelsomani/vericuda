@@ -34,12 +34,12 @@ Definition prog : list M.stmt :=
     M.SAssign "_32" (M.EAdd (M.EVar "_28") (M.EVar "_17"));
     M.SAssign "_27" (M.EVar "_32");
     M.SAssign "_33" (M.EVal (M.VF32 0));
+    M.SAssign "_36" (M.ERange (M.EVal (M.VU64 0)) (M.EVar "_6"));
     M.SAssign "_34" (M.EVar "_35");
     M.SAssign "_37" (M.EVar "_34");
     M.SAssign "_39" (M.EVar "_37");
-    M.SAssign "_38" (M.EVar "_39");
-    M.SAssign "_40" (M.EVar "_38");
-    M.SWhile (M.EVar "_40") [ M.SAssign "_41" (M.EVar "_38");
+    M.SAssign "_38" (M.ENext (M.EVar "_39"));
+    M.SWhile (M.EDiscriminant (M.EVar "_38")) [ M.SAssign "_41" (M.EOptionGet (M.EVar "_38"));
       M.SAssign "_42" (M.ELt (M.EVar "_21") (M.EVar "_4")) ];
     M.SAssign "_126" (M.ELt (M.EVar "_21") (M.EVar "_4"));
     M.SIf (M.EVar "_126") [ M.SAssign "_127" (M.ELt (M.EVar "_27") (M.EVar "_5"));

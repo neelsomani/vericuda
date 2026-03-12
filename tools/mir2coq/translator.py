@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from .ast_stmt import IfStmt, Stmt, WhileStmt
+from .ast_expr import Expr, Var
+from .ast_stmt import AssignStmt, IfStmt, Stmt, WhileStmt
 from .line_terms import (
     AssertLineTerm,
     AssignStmtTerm,
@@ -108,7 +109,9 @@ class MIRTranslator:
                     current = terminator.target
                     continue
                 if isinstance(terminator, SwitchTerm):
-                    if self._translate_loop_if_possible(current, terminator, state, stmts):
+                    if self._translate_loop_if_possible(
+                        current, terminator, state, stmts, block_stmts
+                    ):
                         current = terminator.false_label
                         continue
                     true_state = state.copy()
@@ -136,9 +139,15 @@ class MIRTranslator:
         terminator: SwitchTerm,
         state: TranslatorState,
         stmts: List[Stmt],
+        header_stmts: Sequence[Stmt],
     ) -> bool:
         if not header_label or header_label in self._loop_headers_in_progress:
             return False
+
+        loop_cond, trim_count = self._hoist_loop_condition_from_header(
+            terminator.cond, header_stmts
+        )
+
         loop_state = state.copy()
         self._loop_headers_in_progress.add(header_label)
         try:
@@ -153,10 +162,26 @@ class MIRTranslator:
                 return False
             if loop_stop_label != header_label:
                 return False
-            stmts.append(WhileStmt(cond=terminator.cond, body=loop_body))
+            if trim_count > 0:
+                del stmts[-trim_count:]
+            stmts.append(WhileStmt(cond=loop_cond, body=loop_body))
             return True
         finally:
             self._loop_headers_in_progress.discard(header_label)
+
+    def _hoist_loop_condition_from_header(
+        self, cond: Expr, header_stmts: Sequence[Stmt]
+    ) -> Tuple[Expr, int]:
+        if not header_stmts:
+            return cond, 0
+        if not isinstance(cond, Var):
+            return cond, 0
+        last_stmt = header_stmts[-1]
+        if not isinstance(last_stmt, AssignStmt):
+            return cond, 0
+        if last_stmt.dst != cond.name:
+            return cond, 0
+        return last_stmt.expr, 1
 
     def _try_terms(
         self, line: str, terms: Sequence[type], state: TranslatorState

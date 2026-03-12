@@ -11,8 +11,7 @@ Module Saxpy_gen.
 Definition prog : list M.stmt :=
   [ M.SAssign "_5" (M.EVal (M.VI32 0));
     M.SAssign "_7" (M.EVar "_5");
-    M.SAssign "_6" (M.ELt (M.EVar "_7") (M.EVar "_4"));
-    M.SWhile (M.EVar "_6") [ M.SAssign "_9" (M.EVar "_5");
+    M.SWhile (M.ELt (M.EVar "_7") (M.EVar "_4")) [ M.SAssign "_9" (M.EVar "_5");
       M.SAssign "_8" (M.EVar "_9");
       M.SAssign "_11" (M.EPtrAdd (M.EVar "_2") (M.EVar "_8"));
       M.SLoad "_10" (M.EPtrAdd (M.EVar "_2") (M.EVar "_8")) M.TyF32;

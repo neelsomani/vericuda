@@ -135,6 +135,43 @@ Definition bool_of_val (v : M.val) : option bool :=
   | _ => None
   end.
 
+Definition range_of_vals (v_start v_end : M.val) : option M.val :=
+  match int_of_val v_start, int_of_val v_end with
+  | Some s, Some e => Some (M.VRange s e)
+  | _, _ => None
+  end.
+
+Definition next_of_val (v : M.val) : option M.val :=
+  match v with
+  | M.VRange cur end_ =>
+      if Z.ltb cur end_
+      then Some (M.VOptionSome (M.VU64 cur))
+      else Some M.VOptionNone
+  | _ => None
+  end.
+
+Definition next_step_of_val (v : M.val) : option (M.val * M.val) :=
+  match v with
+  | M.VRange cur end_ =>
+      if Z.ltb cur end_
+      then Some (M.VOptionSome (M.VU64 cur), M.VRange (cur + 1) end_)
+      else Some (M.VOptionNone, M.VRange cur end_)
+  | _ => None
+  end.
+
+Definition discriminant_of_val (v : M.val) : option M.val :=
+  match v with
+  | M.VOptionNone => Some (M.VI32 0)
+  | M.VOptionSome _ => Some (M.VI32 1)
+  | _ => None
+  end.
+
+Definition option_get_of_val (v : M.val) : option M.val :=
+  match v with
+  | M.VOptionSome inner => Some inner
+  | _ => None
+  end.
+
 Definition eq_vals (v1 v2 : M.val) : option bool :=
   match v1, v2 with
   | M.VI32 x, M.VI32 y => Some (Z.eqb x y)
@@ -233,6 +270,24 @@ Fixpoint eval_expr (ρ : env) (e : M.expr) : option M.val :=
       end
     | None => None
     end
+  | M.ERange start end_ =>
+    match eval_expr ρ start, eval_expr ρ end_ with
+    | Some v_start, Some v_end => range_of_vals v_start v_end
+    | _, _ => None
+    end
+  | M.ENext iter =>
+    (* ENext carries mutable iterator semantics and is handled in StepAssignNext. *)
+    None
+  | M.EDiscriminant arg =>
+    match eval_expr ρ arg with
+    | Some v => discriminant_of_val v
+    | None => None
+    end
+  | M.EOptionGet arg =>
+    match eval_expr ρ arg with
+    | Some v => option_get_of_val v
+    | None => None
+    end
   | M.EPtrAdd base ofs =>
       match eval_expr ρ base, eval_expr ρ ofs with
       | Some (M.VU64 a), Some off =>
@@ -259,6 +314,12 @@ Definition eval_bool (ρ : env) (e : M.expr) : option bool :=
 (** * Small-step semantics emitting MIR events *)
 
 Inductive step : cfg -> option M.event_mir -> cfg -> Prop :=
+| StepAssignNext : forall stk ρ μ x iter_name v_iter v_opt v_iter',
+  env_get ρ iter_name = Some v_iter ->
+  next_step_of_val v_iter = Some (v_opt, v_iter') ->
+  step (mk_cfg (M.SAssign x (M.ENext (M.EVar iter_name)) :: stk) ρ μ)
+     (Some (M.EvAssign x v_opt))
+     (mk_cfg stk (env_set (env_set ρ iter_name v_iter') x v_opt) μ)
 | StepAssign : forall stk ρ μ x rhs v,
   eval_expr ρ rhs = Some v ->
   step (mk_cfg (M.SAssign x rhs :: stk) ρ μ)

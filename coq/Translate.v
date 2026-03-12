@@ -29,6 +29,9 @@ Definition z_of_val (v : M.val) : Z :=
   | M.VU64 addr => addr
   | M.VBool true => 1
   | M.VBool false => 0
+  | M.VOptionNone => 0
+  | M.VOptionSome _ => 1
+  | M.VRange cur _ => cur
   end.
 
 (* Week-1 policy helpers. *)

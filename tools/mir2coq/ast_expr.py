@@ -208,6 +208,51 @@ class PtrAdd(Expr):
 
 
 @dataclasses.dataclass
+class RangeExpr(Expr):
+    start: Expr
+    end: Expr
+
+    def to_coq(self) -> str:
+        return f"M.ERange ({self.start.to_coq()}) ({self.end.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.start.has_unresolved_expr() or self.end.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class NextExpr(Expr):
+    iterator: Expr
+
+    def to_coq(self) -> str:
+        return f"M.ENext ({self.iterator.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.iterator.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class DiscriminantExpr(Expr):
+    arg: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EDiscriminant ({self.arg.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.arg.has_unresolved_expr()
+
+
+@dataclasses.dataclass
+class OptionGetExpr(Expr):
+    arg: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EOptionGet ({self.arg.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.arg.has_unresolved_expr()
+
+
+@dataclasses.dataclass
 class SymbolConst(Expr):
     name: str
 
