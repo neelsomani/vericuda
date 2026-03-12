@@ -54,3 +54,5 @@ AGENTS.md
 __pycache__/
 
 examples/*/Cargo.lock
+
+log/

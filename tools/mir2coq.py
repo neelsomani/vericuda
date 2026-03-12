@@ -531,44 +531,121 @@ def parse_operand(token: str) -> Expr:
     return Var(token)
 
 
+@dataclasses.dataclass
+class FuncCall:
+    name: str
+    args: List[str]
+    raw: str
+
+
+class LibFuncParser:
+    def match(self, call: FuncCall) -> bool:
+        raise NotImplementedError
+
+    def parse(self, call: FuncCall) -> Optional[Expr]:
+        raise NotImplementedError
+
+
+@dataclasses.dataclass
+class NamedBinaryParser(LibFuncParser):
+    name: str
+    expr_cls: type
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name == self.name
+
+    def parse(self, call: FuncCall) -> Optional[Expr]:
+        if len(call.args) != 2:
+            return None
+        return self.expr_cls(parse_expr(call.args[0]), parse_expr(call.args[1]))
+
+
+class NamedUnaryParser(LibFuncParser):
+    def __init__(self, name: str, ctor):
+        self.name = name
+        self.ctor = ctor
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name == self.name
+
+    def parse(self, call: FuncCall) -> Optional[Expr]:
+        if len(call.args) != 1:
+            return None
+        return self.ctor(parse_expr(call.args[0]))
+
+
+class IteratorNextParser(LibFuncParser):
+    # Handle forms like <Range as Iterator>::next(copy _40).
+    def match(self, call: FuncCall) -> bool:
+        return call.name.endswith("::next")
+
+    def parse(self, call: FuncCall) -> Optional[Expr]:
+        if not call.args:
+            return None
+        return parse_expr(call.args[0])
+
+
+def parse_func_call(src: str) -> Optional[FuncCall]:
+    token = src.strip()
+    if not token.endswith(")"):
+        return None
+    l_paren = token.find("(")
+    if l_paren <= 0:
+        return None
+    name = token[:l_paren].strip()
+    # Accept trait-qualified MIR paths like
+    # `<std::ops::Range<usize> as Iterator>::next`.
+    if not name:
+        return None
+    depth = 0
+    for ch in token[l_paren:]:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+    if depth != 0:
+        return None
+    inner = token[l_paren + 1 : -1]
+    args = split_args(inner) if inner.strip() else []
+    return FuncCall(name=name, args=args, raw=token)
+
+
+FUNC_PARSERS: List[LibFuncParser] = [
+    NamedBinaryParser("AddWithOverflow", Add),
+    NamedBinaryParser("MulWithOverflow", Mul),
+    NamedUnaryParser("discriminant", lambda arg: arg),
+    IteratorNextParser(),
+    NamedBinaryParser("Add", Add),
+    NamedBinaryParser("Sub", Sub),
+    NamedBinaryParser("Mul", Mul),
+    NamedBinaryParser("Div", Div),
+    NamedBinaryParser("Lt", Lt),
+    NamedBinaryParser("Eq", Eq),
+    NamedBinaryParser("BitAnd", BitAnd),
+    NamedUnaryParser("Not", Not),
+]
+
+
+def parse_func(src: str) -> Optional[Expr]:
+    call = parse_func_call(src)
+    if call is None:
+        return None
+    for parser in FUNC_PARSERS:
+        if parser.match(call):
+            parsed = parser.parse(call)
+            if parsed is not None:
+                return parsed
+    return None
+
+
 def parse_expr(src: str) -> Expr:
-    src = src.strip()
-    if src.startswith("AddWithOverflow(") and src.endswith(")"):
-        inner = src[len("AddWithOverflow") + 1 : -1]
-        args = split_args(inner)
-        if len(args) == 2:
-            return Add(parse_expr(args[0]), parse_expr(args[1]))
-    if src.startswith("MulWithOverflow(") and src.endswith(")"):
-        inner = src[len("MulWithOverflow") + 1 : -1]
-        args = split_args(inner)
-        if len(args) == 2:
-            return Mul(parse_expr(args[0]), parse_expr(args[1]))
-    if src.startswith("discriminant(") and src.endswith(")"):
-        inner = src[len("discriminant") + 1 : -1]
-        return parse_expr(inner)
-    if "::next(" in src and src.endswith(")"):
-        inner = src[src.rfind("(") + 1 : -1]
-        args = split_args(inner)
-        if args:
-            return parse_expr(args[0])
-    for ctor, cls in (
-        ("Add", Add),
-        ("Sub", Sub),
-        ("Mul", Mul),
-        ("Div", Div),
-        ("Lt", Lt),
-        ("Eq", Eq),
-        ("BitAnd", BitAnd),
-    ):
-        if src.startswith(f"{ctor}(") and src.endswith(")"):
-            inner = src[len(ctor) + 1 : -1]
-            args = split_args(inner)
-            if len(args) == 2:
-                return cls(parse_expr(args[0]), parse_expr(args[1]))
-    if src.startswith("Not(") and src.endswith(")"):
-        inner = src[len("Not") + 1 : -1]
-        return Not(parse_expr(inner))
-    return parse_operand(src)
+    token = src.strip()
+    parsed = parse_func(token)
+    if parsed is not None:
+        return parsed
+    return parse_operand(token)
 
 
 def is_supported_expr(expr: Expr) -> bool:
@@ -576,6 +653,34 @@ def is_supported_expr(expr: Expr) -> bool:
         return re.fullmatch(IDENT, expr.name) is not None
     if isinstance(expr, (Const, BoolConst, SymbolConst, Add, Sub, Mul, Div, PtrAdd, Lt, Eq, BitAnd, Not)):
         return True
+    return False
+
+
+def expr_has_unresolved_var(expr: Expr) -> bool:
+    if isinstance(expr, Var):
+        return re.fullmatch(IDENT, expr.name) is None
+    if isinstance(expr, (Const, BoolConst, SymbolConst)):
+        return False
+    if isinstance(expr, (Add, Sub, Mul, Div, Lt, Eq, BitAnd)):
+        return expr_has_unresolved_var(expr.lhs) or expr_has_unresolved_var(expr.rhs)
+    if isinstance(expr, PtrAdd):
+        return expr_has_unresolved_var(expr.base) or expr_has_unresolved_var(expr.offset)
+    if isinstance(expr, Not):
+        return expr_has_unresolved_var(expr.arg)
+    return False
+
+
+def stmt_has_unresolved_expr(stmt: Stmt) -> bool:
+    if isinstance(stmt, AssignStmt):
+        return expr_has_unresolved_var(stmt.expr)
+    if isinstance(stmt, StoreStmt):
+        return expr_has_unresolved_var(stmt.addr) or expr_has_unresolved_var(stmt.value)
+    if isinstance(stmt, LoadStmt):
+        return expr_has_unresolved_var(stmt.addr)
+    if isinstance(stmt, AtomicLoadStmt):
+        return expr_has_unresolved_var(stmt.addr)
+    if isinstance(stmt, AtomicStoreStmt):
+        return expr_has_unresolved_var(stmt.addr) or expr_has_unresolved_var(stmt.value)
     return False
 
 
@@ -729,6 +834,7 @@ class MIRTranslator:
         self.types = collect_types(lines)
         self.blocks = split_blocks(lines)
         self._loop_headers_in_progress: Set[str] = set()
+        self.warnings: List[str] = []
 
     def translate(self) -> List[Stmt]:
         # Start translating from the entry block (bb0 if it exists, otherwise the first block) and follow the control flow until we exhaust reachable blocks or hit unsupported patterns. Collect statements along the way.
@@ -874,7 +980,14 @@ class MIRTranslator:
 
             stmt_line = strip_control_suffix(line)
             stmt = self._parse_statement(stmt_line, state)
-            if stmt: stmts.append(stmt)
+            if stmt:
+                stmts.append(stmt)
+                if stmt_has_unresolved_expr(stmt):
+                    self.warnings.append(
+                        f"[{block.label}] unresolved expression fallback: {stmt_line}"
+                    )
+            else:
+                self.warnings.append(f"[{block.label}] unparsed statement: {stmt_line}")
 
             m_call = RE_CALL_RETURN.search(line)
             if m_call:
@@ -1020,6 +1133,11 @@ def module_from_path(out_path: pathlib.Path, override: Optional[str]) -> str:
     return stem[0].upper() + stem[1:]
 
 
+def warning_log_path(out_path: pathlib.Path) -> pathlib.Path:
+    # Keep warning logs in a stable workspace-level location keyed by output file.
+    return pathlib.Path("log") / f"{out_path.stem}.log"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Translate MIR dump to Coq")
     parser.add_argument("input", type=pathlib.Path, help="Input .mir file")
@@ -1050,6 +1168,18 @@ def main() -> int:
     coq_src = coq_module(module_name, stmts)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(coq_src)
+
+    if translator.warnings:
+        log_path = warning_log_path(args.output)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        header = [
+            f"input: {args.input}",
+            f"output: {args.output}",
+            "warnings:",
+        ]
+        log_path.write_text("\n".join(header + translator.warnings) + "\n")
+        print(f"[mir2coq] warnings logged to {log_path}")
+
     print(f"[mir2coq] wrote {args.output} with {len(stmts)} statements")
     return 0
 
