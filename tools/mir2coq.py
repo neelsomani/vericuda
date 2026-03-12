@@ -337,17 +337,17 @@ def pointee_type(raw: str) -> str:
 # Parsing helpers
 
 
-IDENT = r"_[0-9A-Za-z]+"
+IDENT = r"_[0-9]+"
 
 RE_FUNC_HEADER = re.compile(r"^fn\s+\w+\((?P<args>.*)\)\s*->")
 RE_LET = re.compile(r"^\s*let(?: mut)?\s+(?P<name>{ident}):\s*(?P<ty>[^;]+);".format(ident=IDENT))
 RE_PTR_ADD = re.compile(
-    r"^\s*(?P<dst>{ident})\s*=\s*core::ptr::(?:mut_ptr|const_ptr)::.*::add\((?P<args>.+)\)".format(
+    r"^\s*(?P<dst>{ident})\s*=\s*(?:core|std)::ptr::(?:mut_ptr|const_ptr)::.*::add\((?P<args>.+)\)".format(
         ident=IDENT
     )
 )
 RE_REF_DEREF = re.compile(
-    r"^\s*(?P<dst>{ident})\s*=\s*&\(\*(?P<src>{ident})\)".format(ident=IDENT)
+    r"^\s*(?P<dst>{ident})\s*=\s*&(?:mut\s+)?\(\*(?P<src>{ident})\)".format(ident=IDENT)
 )
 RE_REF_BIND = re.compile(
     r"^\s*(?P<dst>{ident})\s*=\s*&(?:mut\s+)?(?P<src>{ident})".format(ident=IDENT)
@@ -378,6 +378,8 @@ RE_RETURN_TERM = re.compile(r"return;")
 RE_ASSERT = re.compile(r"assert\(.*\)\s*->\s*\[success:\s*(?P<label>bb\d+)")
 RE_CALL_RETURN = re.compile(r"->\s*\[return:\s*(?P<label>bb\d+)")
 RE_TUPLE_FIELD = re.compile(r"^(?P<name>{ident})\.(?P<field>\d+):".format(ident=IDENT))
+RE_SOME_FIELD = re.compile(r"^\(?(?P<base>{ident})\s+as\s+Some\)?\.0:\s+.+$".format(ident=IDENT))
+RE_RANGE_LITERAL = re.compile(r"^std::ops::Range::<[^>]+>\s*\{.+\}$")
 
 
 @dataclasses.dataclass
@@ -585,6 +587,30 @@ class IteratorNextParser(LibFuncParser):
         return parse_expr(call.args[0])
 
 
+class IdentityFuncParser(LibFuncParser):
+    def __init__(self, suffix: str):
+        self.suffix = suffix
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name.endswith(self.suffix)
+
+    def parse(self, call: FuncCall) -> Optional[Expr]:
+        if len(call.args) != 1:
+            return None
+        return parse_expr(call.args[0])
+
+
+class OpaqueFuncParser(LibFuncParser):
+    def __init__(self, predicate):
+        self.predicate = predicate
+
+    def match(self, call: FuncCall) -> bool:
+        return self.predicate(call.name)
+
+    def parse(self, call: FuncCall) -> Optional[Expr]:
+        return None
+
+
 def parse_func_call(src: str) -> Optional[FuncCall]:
     token = src.strip()
     if not token.endswith(")"):
@@ -617,6 +643,7 @@ FUNC_PARSERS: List[LibFuncParser] = [
     NamedBinaryParser("MulWithOverflow", Mul),
     NamedUnaryParser("discriminant", lambda arg: arg),
     IteratorNextParser(),
+    IdentityFuncParser("::into_iter"),
     NamedBinaryParser("Add", Add),
     NamedBinaryParser("Sub", Sub),
     NamedBinaryParser("Mul", Mul),
@@ -642,6 +669,13 @@ def parse_func(src: str) -> Optional[Expr]:
 
 def parse_expr(src: str) -> Expr:
     token = src.strip()
+    normalized = token
+    if normalized.startswith("copy ") or normalized.startswith("move "):
+        normalized = normalized.split(None, 1)[1].strip()
+    normalized = strip_wrapped_parens(normalized)
+    m_some = RE_SOME_FIELD.match(normalized)
+    if m_some:
+        return Var(m_some.group("base"))
     parsed = parse_func(token)
     if parsed is not None:
         return parsed
@@ -981,11 +1015,13 @@ class MIRTranslator:
             stmt_line = strip_control_suffix(line)
             stmt = self._parse_statement(stmt_line, state)
             if stmt:
-                stmts.append(stmt)
                 if stmt_has_unresolved_expr(stmt):
                     self.warnings.append(
-                        f"[{block.label}] unresolved expression fallback: {stmt_line}"
+                        f"[{block.label}] parse failed (non _<digits> variable or unsupported expr): {stmt_line}"
                     )
+                    stmt = None
+                if stmt:
+                    stmts.append(stmt)
             else:
                 self.warnings.append(f"[{block.label}] unparsed statement: {stmt_line}")
 
@@ -1169,8 +1205,8 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(coq_src)
 
+    log_path = warning_log_path(args.output)
     if translator.warnings:
-        log_path = warning_log_path(args.output)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         header = [
             f"input: {args.input}",
@@ -1179,6 +1215,8 @@ def main() -> int:
         ]
         log_path.write_text("\n".join(header + translator.warnings) + "\n")
         print(f"[mir2coq] warnings logged to {log_path}")
+    elif log_path.exists():
+        log_path.unlink()
 
     print(f"[mir2coq] wrote {args.output} with {len(stmts)} statements")
     return 0
