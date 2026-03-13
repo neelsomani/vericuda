@@ -31,7 +31,7 @@ Definition z_of_val (v : M.val) : Z :=
   | M.VBool false => 0
   | M.VOptionNone => 0
   | M.VOptionSome _ => 1
-  | M.VRange cur _ => cur
+  | M.VRange cur _ _ => cur
   end.
 
 (* Week-1 policy helpers. *)

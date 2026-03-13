@@ -220,6 +220,18 @@ class RangeExpr(Expr):
 
 
 @dataclasses.dataclass
+class StepByExpr(Expr):
+    iterator: Expr
+    step: Expr
+
+    def to_coq(self) -> str:
+        return f"M.EStepBy ({self.iterator.to_coq()}) ({self.step.to_coq()})"
+
+    def has_unresolved_expr(self) -> bool:
+        return self.iterator.has_unresolved_expr() or self.step.has_unresolved_expr()
+
+
+@dataclasses.dataclass
 class NextExpr(Expr):
     iterator: Expr
 

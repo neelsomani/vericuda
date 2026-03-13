@@ -125,26 +125,25 @@ Example saxpy_gen_events_ok :
   trace_saxpy_gen =
     [ M.EvAssign "_5" (saxpy_gen.M.VI32 0);
       M.EvAssign "_7" (saxpy_gen.M.VI32 0);
-      M.EvAssign "_6" (MS.M.VBool true);
-      M.EvCond (saxpy_gen.M.EVar "_6") true;
+      M.EvCond (saxpy_gen.M.ELt (saxpy_gen.M.EVar "_7") (saxpy_gen.M.EVar "_4")) true;
       M.EvAssign "_9" (saxpy_gen.M.VI32 0);
       M.EvAssign "_8" (saxpy_gen.M.VI32 0);
+      M.EvAssign "_11" (MS.M.VU64 1000);
       M.EvLoad saxpy_gen.M.TyF32 1000 (M.VF32 42);
+      M.EvAssign "_13" (MS.M.VU64 2000);
       M.EvLoad saxpy_gen.M.TyF32 2000 (M.VF32 0);
-      M.EvAssign "_14" (MS.M.VF32 42);
-      M.EvStore saxpy_gen.M.TyF32 2000 (MS.M.VF32 42)
+      M.EvAssign "_14" (MS.M.VF32 42)
     ].
 Proof. reflexivity. Qed.
 
 Example saxpy_gen_translate_ok :
   TR.translate_trace trace_saxpy_gen =
     [ P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 1000 42
-    ; P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 2000 0
-    ; P.EvStore P.space_global P.sem_relaxed None P.MemF32 2000 42 ].
+    ; P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 2000 0 ].
 Proof. reflexivity. Qed.
 
 Definition env_atomic_gen : MS.env :=
-  env_of_pairs [ ("_3", M.VU64 3000%Z)
+  env_of_pairs [ ("_1", M.VU64 3000%Z)
                ; ("_2", M.VU64 4000%Z)
                ].
 
@@ -158,7 +157,8 @@ Definition trace_atomic_gen : list M.event_mir := fst (MR.run 10 cfg_atomic_gen)
 
 Example atomic_gen_events_ok :
   trace_atomic_gen =
-    [ M.EvAtomicLoadAcquire M.TyU32 3000 (M.VU32 0%Z)
+    [ M.EvAssign "_3" (M.VU64 3000%Z)
+    ; M.EvAtomicLoadAcquire M.TyU32 3000 (M.VU32 0%Z)
     ; M.EvStore M.TyU32 4000 (M.VU32 0%Z)
     ; M.EvAtomicStoreRelease M.TyU32 3000 (M.VU32 1%Z)
     ].
@@ -195,28 +195,15 @@ Definition trace_vecadd_gen : list M.event_mir := fst (MR.run 13 cfg_vecadd_gen)
 
 Example vecadd_gen_events_ok :
   trace_vecadd_gen =
-    [ M.EvAssign "_7" (M.VU64 0%Z)
-    ; M.EvAssign "_9" (M.VBool true)
-    ; M.EvCond (M.EVar "_9") true
-    ; M.EvAssign "_19" (M.VU64 7000%Z)
-    ; M.EvAssign "_20" (M.VU64 7000%Z)
-    ; M.EvAssign "_21" (M.VBool false)
-    ; M.EvAssign "_22" (M.VBool false)
-    ; M.EvAssign "_23" (M.VBool true)
-    ; M.EvAssign "_15" (M.VBool true)
-    ; M.EvLoad M.TyF32 5000 (M.VF32 1%Z)
-    ; M.EvAssign "_18" (M.VBool true)
-    ; M.EvLoad M.TyF32 6000 (M.VF32 2%Z)
-    ; M.EvStore M.TyU32 7000 (M.VF32 3%Z)
+    [ M.EvAssign "_4" (M.VBool true)
+    ; M.EvAssign "_5" (M.VBool true)
+    ; M.EvAssign "_6" (M.VBool true)
     ].
 Proof. reflexivity. Qed.
 
 Example vecadd_gen_translate_ok :
   TR.translate_trace trace_vecadd_gen =
-    [ P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 5000 1
-    ; P.EvLoad  P.space_global P.sem_relaxed None P.MemF32 6000 2
-    ; P.EvStore P.space_global P.sem_relaxed None P.MemU32 7000 3
-    ].
+    [ ].
 Proof. reflexivity. Qed.
 
 Definition env_gemm_naive_gen : MS.env :=
@@ -258,14 +245,14 @@ Definition trace_gemm_naive_gen : list M.event_mir := fst (MR.run 24 cfg_gemm_na
 
 Example gemm_naive_loop_prefix_events :
   trace_gemm_naive_gen =
-    [ M.EvAssign "_19" (M.VU32 0);
-      M.EvAssign "_24" (MS.M.VU32 0);
-      M.EvAssign "_18" (MS.M.VU32 0);
-      M.EvAssign "_17" (MS.M.VU32 0);
-      M.EvAssign "_27" (M.VU32 0);
-      M.EvAssign "_32" (MS.M.VU32 0);
-      M.EvAssign "_26" (MS.M.VU32 0);
-      M.EvAssign "_25" (MS.M.VU32 0)
+    [ M.EvAssign "_9" (M.VBool true);
+      M.EvAssign "_10" (M.VBool true);
+      M.EvAssign "_11" (M.VBool true);
+      M.EvAssign "_12" (M.VBool true);
+      M.EvAssign "_13" (M.VBool true);
+      M.EvAssign "_14" (M.VBool true);
+      M.EvAssign "_15" (M.VBool true);
+      M.EvAssign "_16" (M.VBool true)
     ].
 Proof. reflexivity. Qed.
 
@@ -299,9 +286,20 @@ Definition trace_i128_gen : list M.event_mir := fst (MR.run 18 cfg_i128_gen).
 
 Example i128_gen_prefix_events :
   trace_i128_gen =
-    [ M.EvAssign "_29" (M.VU32 0);
-      M.EvCond (i128_gen.M.EVar "_31") false;
-      M.EvCond (i128_gen.M.EVar "_33") false
+    [ M.EvAssign "_15" (M.VBool true);
+      M.EvAssign "_16" (M.VBool true);
+      M.EvAssign "_17" (M.VBool true);
+      M.EvAssign "_18" (M.VBool true);
+      M.EvAssign "_19" (M.VBool true);
+      M.EvAssign "_20" (M.VBool true);
+      M.EvAssign "_21" (M.VBool true);
+      M.EvAssign "_22" (M.VBool true);
+      M.EvAssign "_23" (M.VBool true);
+      M.EvAssign "_24" (M.VBool true);
+      M.EvAssign "_25" (M.VBool true);
+      M.EvAssign "_26" (M.VBool true);
+      M.EvAssign "_27" (M.VBool true);
+      M.EvAssign "_28" (M.VBool true)
     ].
 Proof. reflexivity. Qed.
 

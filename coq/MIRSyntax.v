@@ -23,7 +23,7 @@ Inductive val :=
 | VBool (b : bool)
 | VOptionNone
 | VOptionSome (v : val)
-| VRange (cur end_ : Z).
+| VRange (cur end_ step : Z).
 
 Definition var := string.
 Definition addr := Z.
@@ -44,6 +44,7 @@ Inductive expr :=
 | EShr (lhs rhs : expr)
 | ENot (arg : expr)
 | ERange (start end_ : expr)
+| EStepBy (iter step : expr)
 | ENext (iter : expr)
 | EDiscriminant (arg : expr)
 | EOptionGet (arg : expr)
@@ -90,5 +91,9 @@ Definition const_gemm_tiled_TILE_SIZE_2D : M.val := M.VU64 256%Z.
 Definition const_ALIGNOF_u128 : M.val := M.VU64 16%Z.
 
 Definition const_SIZEOF_u128 : M.val := M.VU64 16%Z.
+
+Definition const_ALIGNOF_f32 : M.val := M.VU64 4%Z.
+
+Definition const_SIZEOF_f32 : M.val := M.VU64 4%Z.
 
 End MIRConstants.

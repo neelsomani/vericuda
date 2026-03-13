@@ -36,6 +36,7 @@ CUDA_INTRINSICS: Set[str] = {
     "thread_idx_x", "thread_idx_y", "thread_idx_z",
     "grid_dim_x", "grid_dim_y", "grid_dim_z",
     "index_1d",
+    "sync_threads", "syncthreads",
 }
 
 

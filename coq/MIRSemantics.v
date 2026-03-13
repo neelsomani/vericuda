@@ -137,13 +137,22 @@ Definition bool_of_val (v : M.val) : option bool :=
 
 Definition range_of_vals (v_start v_end : M.val) : option M.val :=
   match int_of_val v_start, int_of_val v_end with
-  | Some s, Some e => Some (M.VRange s e)
+  | Some s, Some e => Some (M.VRange s e 1)
+  | _, _ => None
+  end.
+
+Definition step_by_of_vals (v_iter v_step : M.val) : option M.val :=
+  match v_iter, int_of_val v_step with
+  | M.VRange cur end_ stride, Some s =>
+      if Z.ltb 0 s
+      then Some (M.VRange cur end_ (stride * s))
+      else None
   | _, _ => None
   end.
 
 Definition next_of_val (v : M.val) : option M.val :=
   match v with
-  | M.VRange cur end_ =>
+  | M.VRange cur end_ _ =>
       if Z.ltb cur end_
       then Some (M.VOptionSome (M.VU64 cur))
       else Some M.VOptionNone
@@ -152,10 +161,10 @@ Definition next_of_val (v : M.val) : option M.val :=
 
 Definition next_step_of_val (v : M.val) : option (M.val * M.val) :=
   match v with
-  | M.VRange cur end_ =>
+  | M.VRange cur end_ step =>
       if Z.ltb cur end_
-      then Some (M.VOptionSome (M.VU64 cur), M.VRange (cur + 1) end_)
-      else Some (M.VOptionNone, M.VRange cur end_)
+      then Some (M.VOptionSome (M.VU64 cur), M.VRange (cur + step) end_ step)
+      else Some (M.VOptionNone, M.VRange cur end_ step)
   | _ => None
   end.
 
@@ -273,6 +282,11 @@ Fixpoint eval_expr (ρ : env) (e : M.expr) : option M.val :=
   | M.ERange start end_ =>
     match eval_expr ρ start, eval_expr ρ end_ with
     | Some v_start, Some v_end => range_of_vals v_start v_end
+    | _, _ => None
+    end
+  | M.EStepBy iter step =>
+    match eval_expr ρ iter, eval_expr ρ step with
+    | Some v_iter, Some v_step => step_by_of_vals v_iter v_step
     | _, _ => None
     end
   | M.ENext iter =>

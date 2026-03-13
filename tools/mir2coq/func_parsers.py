@@ -28,6 +28,7 @@ from .ast_expr import (
     Rem,
     Shl,
     Shr,
+    StepByExpr,
     Sub,
     SymbolConst,
     Var,
@@ -206,6 +207,20 @@ class IteratorNextParser(LibFuncParser):
         return NextExpr(parse_expr(call.args[0], warnings))
 
 
+class IteratorStepByParser(LibFuncParser):
+    """Translate Iterator::step_by into an explicit step-aware iterator expr."""
+
+    def match(self, call: FuncCall) -> bool:
+        return call.name.endswith("::step_by")
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        if len(call.args) != 2:
+            return None
+        return StepByExpr(
+            parse_expr(call.args[0], warnings), parse_expr(call.args[1], warnings)
+        )
+
+
 @dataclasses.dataclass
 class SuffixBinaryParser(LibFuncParser):
     """Matches call names by suffix; maps to a binary expr class."""
@@ -292,12 +307,58 @@ class TypeConstParser(LibFuncParser):
     def match(self, call: FuncCall) -> bool:
         return call.name == self.name
 
+    @staticmethod
+    def _unwrap_maybe_uninit(ty: str) -> str:
+        for prefix in ("std::mem::MaybeUninit<", "core::mem::MaybeUninit<"):
+            if ty.startswith(prefix) and ty.endswith(">"):
+                return ty[len(prefix):-1]
+        return ty
+
+    @staticmethod
+    def _parse_array_type(ty: str) -> Optional[tuple[str, str]]:
+        m = re.match(r"^\[(?P<elem>.+?)\s*;\s*(?P<length>\d+)\]$", ty)
+        if m is None:
+            return None
+        return m.group("elem"), m.group("length")
+
+    @classmethod
+    def _align_expr_for_type(cls, ty: str) -> Optional[Expr]:
+        base = cls._unwrap_maybe_uninit(ty)
+        if base == "f32":
+            return SymbolConst(name="ALIGNOF_f32")
+        if base == "u128":
+            return SymbolConst(name="ALIGNOF_u128")
+        arr = cls._parse_array_type(base)
+        if arr is not None:
+            elem_ty, _ = arr
+            return cls._align_expr_for_type(elem_ty)
+        return None
+
+    @classmethod
+    def _size_expr_for_type(cls, ty: str) -> Optional[Expr]:
+        base = cls._unwrap_maybe_uninit(ty)
+        if base == "f32":
+            return SymbolConst(name="SIZEOF_f32")
+        if base == "u128":
+            return SymbolConst(name="SIZEOF_u128")
+        arr = cls._parse_array_type(base)
+        if arr is not None:
+            elem_ty, length = arr
+            elem_size = cls._size_expr_for_type(elem_ty)
+            if elem_size is None:
+                return None
+            length_expr = parse_operand(f"const {length}_usize")
+            return Mul(elem_size, length_expr)
+        return None
+
     def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
         if len(call.args) != 1:
             return None
         ty = call.args[0].strip().replace(" ", "")
-        if ty == "u128":
-            return SymbolConst(name=f"{self.prefix}_u128")
+        if self.name == "AlignOf":
+            return self._align_expr_for_type(ty)
+        if self.name == "SizeOf":
+            return self._size_expr_for_type(ty)
         return None
 
 
@@ -325,6 +386,25 @@ class OpaqueFuncParser(LibFuncParser):
         return None
 
 
+class MaybeUninitWriteParser(LibFuncParser):
+    """Temporary fallback for MaybeUninit::write.
+
+    We treat it like a generic write helper and return the destination
+    reference argument, so translation can proceed while keeping a warning.
+    """
+
+    def match(self, call: FuncCall) -> bool:
+        return "MaybeUninit::<" in call.name and call.name.endswith("::write")
+
+    def parse(self, call: FuncCall, warnings: List[str]) -> Optional[Expr]:
+        if len(call.args) != 2:
+            return None
+        warnings.append(
+            f"[undef] {call.name} treated as generic write; destination reference is returned"
+        )
+        return parse_expr(call.args[0], warnings)
+
+
 FUNC_PARSERS: List[LibFuncParser] = [
     CudaIntrinsicParser(),
     UndefFunctionParser("assert_kernel_parameter_is_copy", BoolConst(True)),
@@ -332,7 +412,10 @@ FUNC_PARSERS: List[LibFuncParser] = [
     NamedBinaryParser("MulWithOverflow", Mul),
     NamedUnaryParser("discriminant", DiscriminantExpr),
     IteratorNextParser(),
+    IteratorStepByParser(),
+    MaybeUninitWriteParser(),
     IdentityFuncParser("::into_iter"),
+    IdentityFuncParser("::assume_init"),
     NamedUnaryIdentityParser("PtrMetadata"),
     TypeConstParser("AlignOf", "ALIGNOF"),
     TypeConstParser("SizeOf", "SIZEOF"),
