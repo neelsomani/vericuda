@@ -90,10 +90,8 @@ class MIRTranslator:
                 ):
                     raise LoopBoundary(current)
                 if current in visited:
-                    print(
-                        f"warning: loops not supported (stuck in {current})",
-                        file=sys.stderr,
-                    )
+                    msg = f"[control-flow] ignored cyclic path (stuck in {current})"
+                    self.warnings.append(msg)
                     return stmts, state, None
                 visited.add(current)
                 block = self.blocks.get(current)
@@ -159,6 +157,9 @@ class MIRTranslator:
                     visited=set(),
                 )
             except LoopBoundary:
+                self.warnings.append(
+                    f"[control-flow] ignored complex loop at {header_label}: nested/back-edge loop boundary not representable"
+                )
                 return False
             if loop_stop_label != header_label:
                 return False
