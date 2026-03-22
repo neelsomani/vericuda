@@ -1,5 +1,3 @@
-#![no_std]
-
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub unsafe fn bad(flag: *mut AtomicU32, out: *mut u32) {

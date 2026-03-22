@@ -17,7 +17,7 @@ examples/*/target
 
 # MIR dumps and rustc artifacts
 *.rlib
-mir_dump/
+examples/mir_dumps/
 stamps/
 
 # Coq build artifacts
@@ -53,6 +53,6 @@ AGENTS.md
 
 __pycache__/
 
-examples/*/Cargo.lock
+examples/Cargo.lock
 
 log/

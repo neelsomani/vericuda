@@ -1,4 +1,3 @@
-#![no_std]
 #![allow(dead_code)]
 
 pub unsafe fn saxpy(a: f32, x: *const f32, y: *mut f32, n: i32) {

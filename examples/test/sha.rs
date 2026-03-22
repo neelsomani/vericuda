@@ -1,5 +1,3 @@
-#![no_std]
-
 use cuda_std::prelude::*;
 use sha2::{Digest, Sha256, Sha512};
 

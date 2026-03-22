@@ -7,12 +7,12 @@ EXAMPLE_DIR := examples
 LOG_DIR := log
 COQ_DIR := coq
 COQ_EXAMPLE_DIR := $(COQ_DIR)/examples
-CARGO_PKG_PREFIX := cuq_example_
-MIR_RUSTC_FLAGS := --crate-type=lib -Z dump-mir=all
+CUQ_EXAMPLES_MANIFEST := $(EXAMPLE_DIR)/Cargo.toml
+CUQ_EXAMPLES_DRIVER_SRCS := $(EXAMPLE_DIR)/build.rs $(EXAMPLE_DIR)/src/lib.rs $(EXAMPLE_DIR)/src/main.rs
 
 # Tests ending with _bad are expected to be rejected by the translator.
-EXAMPLE_KERNELS := $(wildcard $(EXAMPLE_DIR)/*/kernel/src/lib.rs)
-ALL_TESTS := $(patsubst $(EXAMPLE_DIR)/%/kernel/src/lib.rs,%,$(EXAMPLE_KERNELS))
+EXAMPLE_SOURCES := $(wildcard $(EXAMPLE_DIR)/test/*.rs)
+ALL_TESTS := $(notdir $(basename $(EXAMPLE_SOURCES)))
 BAD_TESTS := $(filter %_bad,$(ALL_TESTS))
 GOOD_TESTS := $(filter-out $(BAD_TESTS),$(ALL_TESTS))
 
@@ -38,20 +38,16 @@ bad-demo: bad-tests
 coq: translate
 	$(MAKE) -C $(COQ_DIR) all
 
-$(STAMP_DIR)/%.stamp: $(EXAMPLE_DIR)/%/kernel/src/lib.rs $(EXAMPLE_DIR)/%/Cargo.toml
+$(STAMP_DIR)/%.stamp: $(EXAMPLE_DIR)/test/%.rs $(CUQ_EXAMPLES_MANIFEST) $(CUQ_EXAMPLES_DRIVER_SRCS)
 	@mkdir -p $(STAMP_DIR)
-	@EXAMPLE_MIR_DIR="$(abspath $(EXAMPLE_DIR)/$*/mir_dump)"; \
-	  mkdir -p "$$EXAMPLE_MIR_DIR"; \
-	  echo "[cargo] dumping MIR for $* -> $$EXAMPLE_MIR_DIR"; \
-	  cd $(EXAMPLE_DIR)/$* && \
-		RUSTFLAGS="$(RUSTFLAGS) -Zunstable-options -Z dump-mir-dir=$$EXAMPLE_MIR_DIR" $(CARGO) rustc -p $(CARGO_PKG_PREFIX)$* --lib -- $(MIR_RUSTC_FLAGS) 2>/dev/null;
+	@$(CARGO) run --manifest-path $(CUQ_EXAMPLES_MANIFEST) -- --target=$* 2>/dev/null
 	@touch $@
 
-$(COQ_EXAMPLE_DIR)/%_gen.v: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py $(STAMP_DIR)/%.stamp
+$(COQ_EXAMPLE_DIR)/%_gen.v: $(EXAMPLE_DIR)/test/%.rs tools/mir2coq.py $(STAMP_DIR)/%.stamp
 	@mkdir -p $(dir $@)
 	@FILE_BASE=$*; \
-	MIR_DIR="$(EXAMPLE_DIR)/$*/mir_dump"; \
-	for MIR_FILE in "$$MIR_DIR"/$*.*.PreCodegen.after.mir "$$MIR_DIR"/$(CARGO_PKG_PREFIX)$*.*.PreCodegen.after.mir; do \
+	MIR_DIR="$(EXAMPLE_DIR)/mir_dumps/$*"; \
+	for MIR_FILE in "$$MIR_DIR"/cuq_examples.$*-*.PreCodegen.after.mir; do \
 	  if [ ! -e "$$MIR_FILE" ]; then \
 	    continue; \
 	  fi; \
@@ -61,7 +57,12 @@ $(COQ_EXAMPLE_DIR)/%_gen.v: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py 
 	    continue; \
 	  ;; \
 	  esac; \
-	  ENTRY_NAME=$$(printf "%s" "$$MIR_BASE" | cut -d. -f2); \
+	  MODULE_AND_ENTRY=$$(printf "%s" "$$MIR_BASE" | cut -d. -f2); \
+	  MODULE_NAME=$${MODULE_AND_ENTRY%%-*}; \
+	  if [ "$$MODULE_NAME" != "$$FILE_BASE" ]; then \
+	    continue; \
+	  fi; \
+	  ENTRY_NAME=$${MODULE_AND_ENTRY#*-}; \
 	  if [ "$$ENTRY_NAME" = "$$FILE_BASE" ]; then \
 	    OUT_FILE=$@; \
 	  else \
@@ -76,14 +77,19 @@ $(COQ_EXAMPLE_DIR)/%_gen.v: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py 
 	  fi; \
 	done;
 
-bad-test-%: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py $(STAMP_DIR)/%.stamp
-	@MIR_DIR="$(EXAMPLE_DIR)/$*/mir_dump"; \
-	for MIR_FILE in "$$MIR_DIR"/$*.*.PreCodegen.after.mir "$$MIR_DIR"/$(CARGO_PKG_PREFIX)$*.*.PreCodegen.after.mir; do \
+bad-test-%: $(EXAMPLE_DIR)/test/%.rs tools/mir2coq.py $(STAMP_DIR)/%.stamp
+	@MIR_DIR="$(EXAMPLE_DIR)/mir_dumps/$*"; \
+	for MIR_FILE in "$$MIR_DIR"/cuq_examples.$*-*.PreCodegen.after.mir; do \
 	  if [ ! -e "$$MIR_FILE" ]; then \
 	    continue; \
 	  fi; \
 	  MIR_BASE=$$(basename "$$MIR_FILE"); \
-	  ENTRY_NAME=$$(printf "%s" "$$MIR_BASE" | cut -d. -f2); \
+	  MODULE_AND_ENTRY=$$(printf "%s" "$$MIR_BASE" | cut -d. -f2); \
+	  MODULE_NAME=$${MODULE_AND_ENTRY%%-*}; \
+	  if [ "$$MODULE_NAME" != "$*" ]; then \
+	    continue; \
+	  fi; \
+	  ENTRY_NAME=$${MODULE_AND_ENTRY#*-}; \
 	  OUT_FILE="$(COQ_EXAMPLE_DIR)/$*_bad_gen.v"; \
 	  if $(PYTHON) tools/mir2coq.py $$MIR_FILE $$OUT_FILE; then \
 	    echo "ERROR: translator accepted bad test $* ($$ENTRY_NAME)" >&2; \
@@ -96,6 +102,6 @@ bad-test-%: $(EXAMPLE_DIR)/%/kernel/src/lib.rs tools/mir2coq.py $(STAMP_DIR)/%.s
 	done
 
 clean:
-	rm -rf $(STAMP_DIR) $(COQ_EXAMPLE_DIR) $(EXAMPLE_DIR)/*/target $(EXAMPLE_DIR)/*/mir_dump $(LOG_DIR)/*
+	rm -rf $(STAMP_DIR) $(COQ_EXAMPLE_DIR) $(EXAMPLE_DIR)/target $(EXAMPLE_DIR)/mir_dumps $(LOG_DIR)/*
 
 all: demo

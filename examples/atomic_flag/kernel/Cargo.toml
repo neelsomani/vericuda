@@ -1,9 +1,0 @@
-[package]
-name = "cuq_example_atomic_flag"
-version = "0.1.0"
-edition = "2021"
-publish = false
-
-[lib]
-crate-type = ["rlib"]
-path = "src/lib.rs"

@@ -26,8 +26,8 @@ SYMBOLIC_CONSTS: Dict[str, str] = {
     "i128::MIN": "i128_MIN",
     "TILE_SIZE": "TILE_SIZE",
     "TILE_SIZE_2D": "TILE_SIZE_2D",
-    "gemm_tiled::TILE_SIZE": "gemm_tiled_TILE_SIZE",
-    "gemm_tiled::TILE_SIZE_2D": "gemm_tiled_TILE_SIZE_2D",
+    "gemm::TILE_SIZE": "gemm_tiled_TILE_SIZE",
+    "gemm::TILE_SIZE_2D": "gemm_tiled_TILE_SIZE_2D",
 }
 
 CUDA_INTRINSICS: Set[str] = {

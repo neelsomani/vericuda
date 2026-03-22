@@ -481,7 +481,7 @@ def parse_expr(src: str, warnings: Optional[List[str]] = None) -> Expr:
         warnings = []
     token = src.strip()
     m_range = re.match(
-        r"^std::ops::Range::<[^>]+>\s*\{\s*start:\s*(?P<start>.+),\s*end:\s*(?P<end>.+)\s*\}$",
+        r"^(?:std|core)::ops::Range::<[^>]+>\s*\{\s*start:\s*(?P<start>.+),\s*end:\s*(?P<end>.+)\s*\}$",
         token,
     )
     if m_range:
