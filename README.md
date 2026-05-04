@@ -1,4 +1,4 @@
-# Cuq: A MIR-to-Coq Framework Targeting PTX for Formal Semantics and Verified Translation of Rust GPU Kernels
+# VeriCUDA: A MIR-to-Coq Framework Targeting PTX for Formal Semantics and Verified Translation of Rust GPU Kernels
 
 ## Abstract
 
@@ -7,7 +7,7 @@ Rust's rise as a systems language has extended into GPU programming through proj
 This project introduces the first framework for **formally verifying the semantics of Rust GPU kernels** by translating Rust's Mid-level Intermediate Representation (MIR) into Coq and building a PTX-flavored event layer designed to line up with the Coq formalization of the PTX memory model (Lustig et al., ASPLOS 2019).
 Rather than modeling Rust's ownership and borrowing rules directly, this work focuses on defining a mechanized operational semantics for a realistic subset of MIR and establishing memory-model soundness: defining a translation from MIR atomic and synchronization events to PTX-style events and proving per-event and per-trace shape correctness, as a stepping stone toward a full memory-model soundness theorem.
 
-**Cuq = CUDA + Coq**.
+**VeriCUDA = CUDA + Rocq**.
 
 ## Motivation
 
