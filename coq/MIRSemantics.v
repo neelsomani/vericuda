@@ -54,7 +54,17 @@ Definition add_vals (v1 v2 : M.val) : option M.val :=
   match v1, v2 with
   | M.VI32 x, M.VI32 y => Some (M.VI32 (x + y))
   | M.VU32 x, M.VU32 y => Some (M.VU32 (x + y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (x + y))
   | M.VF32 x, M.VF32 y => Some (M.VF32 (x + y))
+  | _, _ => None
+  end.
+
+Definition sub_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (x - y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (x - y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (x - y))
+  | M.VF32 x, M.VF32 y => Some (M.VF32 (x - y))
   | _, _ => None
   end.
 
@@ -62,7 +72,130 @@ Definition mul_vals (v1 v2 : M.val) : option M.val :=
   match v1, v2 with
   | M.VI32 x, M.VI32 y => Some (M.VI32 (x * y))
   | M.VU32 x, M.VU32 y => Some (M.VU32 (x * y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (x * y))
   | M.VF32 x, M.VF32 y => Some (M.VF32 (x * y))
+  | _, _ => None
+  end.
+
+Definition div_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => if Z.eqb y 0 then None else Some (M.VI32 (Z.quot x y))
+  | M.VU32 x, M.VU32 y => if Z.eqb y 0 then None else Some (M.VU32 (Z.quot x y))
+  | M.VU64 x, M.VU64 y => if Z.eqb y 0 then None else Some (M.VU64 (Z.quot x y))
+  | M.VF32 x, M.VF32 y => if Z.eqb y 0 then None else Some (M.VF32 (Z.quot x y))
+  | _, _ => None
+  end.
+
+Definition rem_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => if Z.eqb y 0 then None else Some (M.VI32 (Z.rem x y))
+  | M.VU32 x, M.VU32 y => if Z.eqb y 0 then None else Some (M.VU32 (Z.rem x y))
+  | M.VU64 x, M.VU64 y => if Z.eqb y 0 then None else Some (M.VU64 (Z.rem x y))
+  | _, _ => None
+  end.
+
+Definition xor_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (Z.lxor x y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (Z.lxor x y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (Z.lxor x y))
+  | _, _ => None
+  end.
+
+Definition shl_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (Z.shiftl x y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (Z.shiftl x y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (Z.shiftl x y))
+  | _, _ => None
+  end.
+
+Definition shr_vals (v1 v2 : M.val) : option M.val :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (M.VI32 (Z.shiftr x y))
+  | M.VU32 x, M.VU32 y => Some (M.VU32 (Z.shiftr x y))
+  | M.VU64 x, M.VU64 y => Some (M.VU64 (Z.shiftr x y))
+  | _, _ => None
+  end.
+
+Definition int_of_val (v : M.val) : option Z :=
+  match v with
+  | M.VI32 z => Some z
+  | M.VU32 z => Some z
+  | M.VU64 z => Some z
+  | _ => None
+  end.
+
+Definition bool_of_val (v : M.val) : option bool :=
+  match v with
+  | M.VBool b => Some b
+  | M.VI32 z => Some (negb (Z.eqb z 0))
+  | M.VU32 z => Some (negb (Z.eqb z 0))
+  | M.VU64 z => Some (negb (Z.eqb z 0))
+  | _ => None
+  end.
+
+Definition range_of_vals (v_start v_end : M.val) : option M.val :=
+  match int_of_val v_start, int_of_val v_end with
+  | Some s, Some e => Some (M.VRange s e 1)
+  | _, _ => None
+  end.
+
+Definition step_by_of_vals (v_iter v_step : M.val) : option M.val :=
+  match v_iter, int_of_val v_step with
+  | M.VRange cur end_ stride, Some s =>
+      if Z.ltb 0 s
+      then Some (M.VRange cur end_ (stride * s))
+      else None
+  | _, _ => None
+  end.
+
+Definition next_of_val (v : M.val) : option M.val :=
+  match v with
+  | M.VRange cur end_ _ =>
+      if Z.ltb cur end_
+      then Some (M.VOptionSome (M.VU64 cur))
+      else Some M.VOptionNone
+  | _ => None
+  end.
+
+Definition next_step_of_val (v : M.val) : option (M.val * M.val) :=
+  match v with
+  | M.VRange cur end_ step =>
+      if Z.ltb cur end_
+      then Some (M.VOptionSome (M.VU64 cur), M.VRange (cur + step) end_ step)
+      else Some (M.VOptionNone, M.VRange cur end_ step)
+  | _ => None
+  end.
+
+Definition discriminant_of_val (v : M.val) : option M.val :=
+  match v with
+  | M.VOptionNone => Some (M.VI32 0)
+  | M.VOptionSome _ => Some (M.VI32 1)
+  | _ => None
+  end.
+
+Definition option_get_of_val (v : M.val) : option M.val :=
+  match v with
+  | M.VOptionSome inner => Some inner
+  | _ => None
+  end.
+
+Definition eq_vals (v1 v2 : M.val) : option bool :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (Z.eqb x y)
+  | M.VU32 x, M.VU32 y => Some (Z.eqb x y)
+  | M.VU64 x, M.VU64 y => Some (Z.eqb x y)
+  | M.VF32 x, M.VF32 y => Some (Z.eqb x y)
+  | M.VBool b1, M.VBool b2 => Some (Bool.eqb b1 b2)
+  | _, _ => None
+  end.
+
+Definition lt_vals (v1 v2 : M.val) : option bool :=
+  match v1, v2 with
+  | M.VI32 x, M.VI32 y => Some (Z.ltb x y)
+  | M.VU32 x, M.VU32 y => Some (Z.ltb x y)
+  | M.VU64 x, M.VU64 y => Some (Z.ltb x y)
   | _, _ => None
   end.
 
@@ -71,15 +204,104 @@ Fixpoint eval_expr (ρ : env) (e : M.expr) : option M.val :=
   | M.EVal v => Some v
   | M.EVar x => env_get ρ x
   | M.EAdd e1 e2 =>
-      match eval_expr ρ e1, eval_expr ρ e2 with
-      | Some v1, Some v2 => add_vals v1 v2
-      | _, _ => None
-      end
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => add_vals v1 v2
+    | _, _ => None
+    end
+  | M.ESub e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => sub_vals v1 v2
+    | _, _ => None
+    end
   | M.EMul e1 e2 =>
-      match eval_expr ρ e1, eval_expr ρ e2 with
-      | Some v1, Some v2 => mul_vals v1 v2
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => mul_vals v1 v2
+    | _, _ => None
+    end
+  | M.EDiv e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => div_vals v1 v2
+    | _, _ => None
+    end
+  | M.ERem e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => rem_vals v1 v2
+    | _, _ => None
+    end
+  | M.ELt e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 =>
+      match lt_vals v1 v2 with
+      | Some b => Some (M.VBool b)
+      | None => None
+      end
+    | _, _ => None
+    end
+  | M.EEq e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 =>
+      match eq_vals v1 v2 with
+      | Some b => Some (M.VBool b)
+      | None => None
+      end
+    | _, _ => None
+    end
+  | M.EAnd e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 =>
+      match bool_of_val v1, bool_of_val v2 with
+      | Some b1, Some b2 => Some (M.VBool (andb b1 b2))
       | _, _ => None
       end
+    | _, _ => None
+    end
+  | M.EXor e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => xor_vals v1 v2
+    | _, _ => None
+    end
+  | M.EShl e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => shl_vals v1 v2
+    | _, _ => None
+    end
+  | M.EShr e1 e2 =>
+    match eval_expr ρ e1, eval_expr ρ e2 with
+    | Some v1, Some v2 => shr_vals v1 v2
+    | _, _ => None
+    end
+  | M.ENot e1 =>
+    match eval_expr ρ e1 with
+    | Some v =>
+      match bool_of_val v with
+      | Some b => Some (M.VBool (negb b))
+      | None => None
+      end
+    | None => None
+    end
+  | M.ERange start end_ =>
+    match eval_expr ρ start, eval_expr ρ end_ with
+    | Some v_start, Some v_end => range_of_vals v_start v_end
+    | _, _ => None
+    end
+  | M.EStepBy iter step =>
+    match eval_expr ρ iter, eval_expr ρ step with
+    | Some v_iter, Some v_step => step_by_of_vals v_iter v_step
+    | _, _ => None
+    end
+  | M.ENext iter =>
+    (* ENext carries mutable iterator semantics and is handled in StepAssignNext. *)
+    None
+  | M.EDiscriminant arg =>
+    match eval_expr ρ arg with
+    | Some v => discriminant_of_val v
+    | None => None
+    end
+  | M.EOptionGet arg =>
+    match eval_expr ρ arg with
+    | Some v => option_get_of_val v
+    | None => None
+    end
   | M.EPtrAdd base ofs =>
       match eval_expr ρ base, eval_expr ρ ofs with
       | Some (M.VU64 a), Some off =>
@@ -106,10 +328,17 @@ Definition eval_bool (ρ : env) (e : M.expr) : option bool :=
 (** * Small-step semantics emitting MIR events *)
 
 Inductive step : cfg -> option M.event_mir -> cfg -> Prop :=
+| StepAssignNext : forall stk ρ μ x iter_name v_iter v_opt v_iter',
+  env_get ρ iter_name = Some v_iter ->
+  next_step_of_val v_iter = Some (v_opt, v_iter') ->
+  step (mk_cfg (M.SAssign x (M.ENext (M.EVar iter_name)) :: stk) ρ μ)
+     (Some (M.EvAssign x v_opt))
+     (mk_cfg stk (env_set (env_set ρ iter_name v_iter') x v_opt) μ)
 | StepAssign : forall stk ρ μ x rhs v,
-    eval_expr ρ rhs = Some v ->
-    step (mk_cfg (M.SAssign x rhs :: stk) ρ μ) None
-         (mk_cfg stk (env_set ρ x v) μ)
+  eval_expr ρ rhs = Some v ->
+  step (mk_cfg (M.SAssign x rhs :: stk) ρ μ)
+     (Some (M.EvAssign x v))
+     (mk_cfg stk (env_set ρ x v) μ)
 | StepLoad : forall stk ρ μ x ptr ty addr v,
     eval_addr ρ ptr = Some addr ->
     mem_read μ addr = Some v ->
@@ -139,15 +368,29 @@ Inductive step : cfg -> option M.event_mir -> cfg -> Prop :=
          (Some M.EvBarrier)
          (mk_cfg stk ρ μ)
 | StepIfTrue : forall stk ρ μ cond t_branch f_branch,
-    eval_bool ρ cond = Some true ->
-    step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
-         None
-         (mk_cfg (t_branch ++ stk) ρ μ)
+  eval_bool ρ cond = Some true ->
+  step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
+     (Some (M.EvCond cond true))
+     (mk_cfg (t_branch ++ stk) ρ μ)
 | StepIfFalse : forall stk ρ μ cond t_branch f_branch,
-    eval_bool ρ cond = Some false ->
-    step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
-         None
-         (mk_cfg (f_branch ++ stk) ρ μ)
+  eval_bool ρ cond = Some false ->
+  step (mk_cfg (M.SIf cond t_branch f_branch :: stk) ρ μ)
+     (Some (M.EvCond cond false))
+     (mk_cfg (f_branch ++ stk) ρ μ)
+| StepWhileTrue : forall stk ρ μ cond body,
+  eval_bool ρ cond = Some true ->
+  step (mk_cfg (M.SWhile cond body :: stk) ρ μ)
+     (Some (M.EvCond cond true))
+     (mk_cfg (body ++ (M.SWhile cond body :: stk)) ρ μ)
+| StepWhileFalse : forall stk ρ μ cond body,
+  eval_bool ρ cond = Some false ->
+  step (mk_cfg (M.SWhile cond body :: stk) ρ μ)
+     (Some (M.EvCond cond false))
+     (mk_cfg stk ρ μ)
+| StepLoop : forall stk ρ μ body,
+    step (mk_cfg (M.SLoop body :: stk) ρ μ)
+      None
+      (mk_cfg (body ++ (M.SLoop body :: stk)) ρ μ)
 | StepSeq : forall stk ρ μ body,
     step (mk_cfg (M.SSeq body :: stk) ρ μ)
          None

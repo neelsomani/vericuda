@@ -25,7 +25,7 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
               let cfg' := {| MS.cfg_code := rest;
                               MS.cfg_env := MS.env_set ρ x v;
                               MS.cfg_mem := μ |} in
-              Some (None, cfg')
+              Some (Some (M.EvAssign x v), cfg')
           | None => None
           end
       | M.SLoad x ptr ty =>
@@ -83,14 +83,33 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
               let cfg' := {| MS.cfg_code := t_branch ++ rest;
                               MS.cfg_env := ρ;
                               MS.cfg_mem := μ |} in
-              Some (None, cfg')
+              Some (Some (M.EvCond cond true), cfg')
           | Some false =>
               let cfg' := {| MS.cfg_code := f_branch ++ rest;
                               MS.cfg_env := ρ;
                               MS.cfg_mem := μ |} in
-              Some (None, cfg')
+              Some (Some (M.EvCond cond false), cfg')
           | None => None
           end
+      | M.SWhile cond body =>
+          match MS.eval_bool ρ cond with
+          | Some true =>
+              let cfg' := {| MS.cfg_code := body ++ (M.SWhile cond body :: rest);
+                              MS.cfg_env := ρ;
+                              MS.cfg_mem := μ |} in
+              Some (Some (M.EvCond cond true), cfg')
+          | Some false =>
+              let cfg' := {| MS.cfg_code := rest;
+                              MS.cfg_env := ρ;
+                              MS.cfg_mem := μ |} in
+              Some (Some (M.EvCond cond false), cfg')
+          | None => None
+          end
+      | M.SLoop body =>
+          let cfg' := {| MS.cfg_code := body ++ (M.SLoop body :: rest);
+                          MS.cfg_env := ρ;
+                          MS.cfg_mem := μ |} in
+          Some (None, cfg')
       | M.SSeq body =>
           let cfg' := {| MS.cfg_code := body ++ rest;
                           MS.cfg_env := ρ;

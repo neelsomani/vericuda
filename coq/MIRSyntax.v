@@ -20,7 +20,10 @@ Inductive val :=
 | VU32 (z : Z)
 | VF32 (bits : Z)
 | VU64 (addr : Z)
-| VBool (b : bool).
+| VBool (b : bool)
+| VOptionNone
+| VOptionSome (v : val)
+| VRange (cur end_ step : Z).
 
 Definition var := string.
 Definition addr := Z.
@@ -29,7 +32,22 @@ Inductive expr :=
 | EVal (v : val)
 | EVar (x : var)
 | EAdd (lhs rhs : expr)
+| ESub (lhs rhs : expr)
 | EMul (lhs rhs : expr)
+| EDiv (lhs rhs : expr)
+| ERem (lhs rhs : expr)
+| ELt (lhs rhs : expr)
+| EEq (lhs rhs : expr)
+| EAnd (lhs rhs : expr)
+| EXor (lhs rhs : expr)
+| EShl (lhs rhs : expr)
+| EShr (lhs rhs : expr)
+| ENot (arg : expr)
+| ERange (start end_ : expr)
+| EStepBy (iter step : expr)
+| ENext (iter : expr)
+| EDiscriminant (arg : expr)
+| EOptionGet (arg : expr)
 | EPtrAdd (base ofs : expr).
 
 Inductive stmt :=
@@ -40,6 +58,8 @@ Inductive stmt :=
 | SAtomicStoreRelease (ptr : expr) (rhs : expr) (ty : mir_ty)
 | SBarrier
 | SIf (cond : expr) (then_branch else_branch : list stmt)
+| SWhile (cond : expr) (body : list stmt)
+| SLoop (body : list stmt)
 | SSeq (body : list stmt).
 
 Inductive event_mir :=
@@ -47,6 +67,33 @@ Inductive event_mir :=
 | EvStore (ty : mir_ty) (addr : addr) (v : val)
 | EvAtomicLoadAcquire (ty : mir_ty) (addr : addr) (v : val)
 | EvAtomicStoreRelease (ty : mir_ty) (addr : addr) (v : val)
+| EvAssign (x : var) (v : val)
+| EvCond (cond : expr) (result : bool)
 | EvBarrier.
 
 End MIR.
+
+Module MIRConstants.
+
+Module M := MIR.
+
+Definition const_i128_MIN : M.val :=
+	M.VI32 (-170141183460469231731687303715884105728)%Z.
+
+Definition const_TILE_SIZE : M.val := M.VU64 16%Z.
+
+Definition const_TILE_SIZE_2D : M.val := M.VU64 256%Z.
+
+Definition const_gemm_tiled_TILE_SIZE : M.val := M.VU64 16%Z.
+
+Definition const_gemm_tiled_TILE_SIZE_2D : M.val := M.VU64 256%Z.
+
+Definition const_ALIGNOF_u128 : M.val := M.VU64 16%Z.
+
+Definition const_SIZEOF_u128 : M.val := M.VU64 16%Z.
+
+Definition const_ALIGNOF_f32 : M.val := M.VU64 4%Z.
+
+Definition const_SIZEOF_f32 : M.val := M.VU64 4%Z.
+
+End MIRConstants.
