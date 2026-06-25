@@ -53,9 +53,15 @@ Proof.
   destruct e; cbn; constructor.
 Qed.
 
-(* Placeholder for the eventual per-trace correspondence theorem. *)
-Theorem translate_trace_sound : forall (trace : list M.event_mir),
-  True.
-Proof. exact (fun _ => I). Qed.
+(* TODO: The next major result should be a semantic soundness theorem connecting
+   MIR executions to PTX memory model guarantees. This will require:
+   1. Integrating the PTX memory model's happens-before and coherence relations
+   2. Defining a MIR memory model with acquire/release semantics
+   3. Proving that if a MIR trace is DRF under the MIR model, its translated
+      PTX trace admits only executions consistent with the PTX model
+
+   The translate_trace_shape lemma above establishes structural correspondence
+   (each MIR event maps to the correct PTX event constructor and fields), which
+   is a necessary foundation for the eventual soundness proof. *)
 
 End Soundness.

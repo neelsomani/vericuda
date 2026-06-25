@@ -43,23 +43,22 @@ Rather than modeling Rust's ownership and borrowing rules directly, this work fo
 5. **Prototype toolchain:**
    Deliver a prototype that automatically translates Rust-CUDA kernels into Coq terms, evaluates their semantics within Coq, and interfaces with PTX proofs.
 
-## Planned Outcomes
+## Current Status
 
-* A Coq formalization of Rust MIR semantics for GPU kernels using Rust nightly-2025-03-02.
-* A MIR→PTX memory-model correspondence theorem, establishing soundness of atomic and synchronization operations for a well-defined kernel subset.
-* A prototype translator generating Coq verification artifacts from Rust code.
-* Case studies on standard CUDA benchmarks (e.g., SAXPY, reductions) verifying barrier correctness and dataflow soundness.
+* ✓ A Coq formalization of Rust MIR semantics for GPU kernels using Rust nightly-2025-03-02.
+* ✓ Per-event and per-trace structural correspondence proofs (`translate_trace_shape`) showing MIR events map correctly to PTX event constructors.
+* ✓ A prototype translator generating Coq verification artifacts from Rust code.
+* ⧖ Full semantic soundness theorem connecting MIR memory model to PTX memory model (planned).
+* ⧖ Case studies on standard CUDA benchmarks (e.g., SAXPY, reductions) verifying barrier correctness and dataflow soundness (in progress).
 
 ## Future Work
 
 While this first phase omits Rust's ownership and lifetime reasoning, the framework is designed to incorporate it later. Future extensions can integrate ownership types or affine resource logics into the MIR semantics, enabling end-to-end proofs of data-race freedom and alias safety.
 
-## Impact
-
 This project establishes the missing formal bridge between Rust's compiler infrastructure and the only existing mechanized model of GPU execution.
 By defining verified semantics for MIR and connecting it to PTX, it provides the foundation for future CompCert-style verified compilation of GPU code and opens the door to ownership-aware proofs of safety and correctness for massively parallel Rust programs.
 
-## End-to-end demo
+## End-to-End Demo
 
 Rebuild the MIR dumps, translate them into Coq, and check the traces/bridges with:
 
@@ -75,7 +74,7 @@ The target performs three steps:
 
 Afterwards you can inspect `coq/examples/*_gen.v` and re-run `Eval compute` queries found in `coq/MIRTests.v` to see the MIR event traces and their PTX images.
 
-### Architecture at a glance
+### Architecture at a Glance
 
 ```
 examples/*.rs --rustc -Z dump-mir--> mir_dump/*.mir --tools/mir2coq.py--> coq/examples/*_gen.v
@@ -84,7 +83,7 @@ examples/*.rs --rustc -Z dump-mir--> mir_dump/*.mir --tools/mir2coq.py--> coq/ex
            Coq build (MIRSyntax + MIRSemantics + Translate + Soundness) -> PTX event traces
 ```
 
-### Reproduce the pipeline
+### Reproduce the Pipeline
 
 1. Ensure the Rust nightly and Coq toolchain are available:
    - `rustup toolchain install nightly-2025-03-02`
@@ -103,7 +102,7 @@ examples/*.rs --rustc -Z dump-mir--> mir_dump/*.mir --tools/mir2coq.py--> coq/ex
    make bad-demo
    ```
 
-### MIR→PTX mapping (MVP)
+### MIR→PTX Mapping (MVP)
 
 Refer to `docs/mapping-table.md` for the full table. In short:
 
@@ -127,13 +126,16 @@ functions `mem_ty_of_mir` and `z_of_val`.
 - Translator handles a curated subset of MIR (no arbitrary control flow, panic
   paths, or complex intrinsics).
 
-### Next steps
+### Next Steps
 
 1. Extend the translator grammar to cover additional MIR statements
    (comparisons, guards, simple loops/barriers) while preserving determinism.
 2. Enrich the PTX shim with reads-from / coherence relations from the PTX Coq
    model.
-3. Prove the remaining per-event lemmas (`Load_ok`, `Store_ok`) and lift the
-   `translate_trace_shape` property toward an end-to-end soundness theorem.
+3. Define a MIR memory model and prove semantic soundness: the current
+   `translate_trace_shape` theorem establishes structural correspondence only
+   (events line up correctly). The missing piece is proving that MIR traces
+   that are data-race-free under a MIR memory model produce PTX executions
+   consistent with the PTX memory model's happens-before and coherence relations.
 4. Integrate shared-memory scope tags and CTA-wide fences, then revisit
    atomics/fences beyond acquire-release.
