@@ -2,7 +2,7 @@ From Coq Require Import List.
 
 Import ListNotations.
 
-Require Import MIRSyntax MIRSemantics Translate PTXImports PTXRelations.
+Require Import MIRSyntax MIRSemantics Translate PTXEvents PTXRelations.
 
 Module Soundness.
 
@@ -46,22 +46,29 @@ Definition translate_shape (m : M.event_mir) (p : P.event) : Prop :=
       p = P.EvBarrier P.ScopeCTA
   end.
 
+Definition tagged_translate_shape
+    (m : nat * M.event_mir) (p : nat * P.event) : Prop :=
+  fst m = fst p /\ translate_shape (snd m) (snd p).
+
+(** Sanity/regression lemma only: this follows by construction from [map] and
+    does not establish memory-model soundness. *)
 Lemma translate_trace_shape : forall tr,
-  Forall2 translate_shape tr (T.translate_trace tr).
+  Forall2 tagged_translate_shape tr (T.translate_trace tr).
 Proof.
-  induction tr as [|e tr IH]; cbn; constructor; auto.
-  destruct e; cbn; constructor.
+  induction tr as [|[tid e] tr IH]; cbn; constructor; auto.
+  unfold tagged_translate_shape. cbn. split; [reflexivity|].
+  destruct e; cbn; reflexivity.
 Qed.
 
 (* TODO: The next major result should be a semantic soundness theorem connecting
    MIR executions to PTX memory model guarantees. This will require:
-   1. Integrating the PTX memory model's happens-before and coherence relations
+   1. Integrating the external PTX memory model's happens-before and coherence
+      relations (the local [PTXHB] litmus layer is not that integration)
    2. Defining a MIR memory model with acquire/release semantics
    3. Proving that if a MIR trace is DRF under the MIR model, its translated
       PTX trace admits only executions consistent with the PTX model
 
-   The translate_trace_shape lemma above establishes structural correspondence
-   (each MIR event maps to the correct PTX event constructor and fields), which
-   is a necessary foundation for the eventual soundness proof. *)
+   The translate_trace_shape lemma above is a useful regression check for this
+   mapping, but is definitionally true and is not itself a semantic result. *)
 
 End Soundness.

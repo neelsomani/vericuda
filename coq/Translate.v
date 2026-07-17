@@ -3,7 +3,7 @@ From Coq Require Import ZArith List.
 Import ListNotations.
 
 Require Import MIRSyntax.
-Require Import PTXImports.
+Require Import PTXEvents.
 
 Module Translate.
 
@@ -52,8 +52,15 @@ Definition translate_event (ev : M.event_mir) : P.event :=
   | M.EvBarrier => P.EvBarrier scope_cta
   end.
 
-Definition translate_trace (trace : list M.event_mir) : list P.event :=
-  List.map translate_event trace.
+(** Concurrent traces retain the identity of the thread that emitted each
+    event.  Only the event component is translated. *)
+Definition translate_trace
+    (trace : list (nat * M.event_mir)) : list (nat * P.event) :=
+  List.map (fun tagged => (fst tagged, translate_event (snd tagged))) trace.
+
+(** Embed a sequential interpreter trace as events from one thread. *)
+Definition tag_trace (tid : nat) (trace : list M.event_mir)
+    : list (nat * M.event_mir) :=
+  List.map (fun ev => (tid, ev)) trace.
 
 End Translate.
-

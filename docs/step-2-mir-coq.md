@@ -1,28 +1,34 @@
-# Step 2 Coq Sanity Checks
+# Executable Rust-Like IR Semantics
 
-The limited MIR semantics lives under `coq/`. Build it to exercise the smoke
-tests that emit `event_mir` traces.
+The small syntax and per-thread inductive semantics live in `MIRSyntax.v` and
+`MIRSemantics.v`. `MIRRun.v` supplies the executable one-step function and
+fuel-bounded runner.
 
-## Build prerequisites
+Unlike the original smoke-test-only state, agreement is now proved:
 
-- Ensure Coq (≥ 8.18) is installed (`opam install coq` works).
-- From the repository root:
-  - `make -C coq clean` *(optional: clears stale .vo/.glob files)*
-  - `make -C coq all`
+```coq
+Lemma step_fun_sound : forall c oev c',
+  step_fun c = Some (oev, c') -> step c oev c'.
 
-As `coq/MIRTests.v` compiles, the `Eval compute` commands print the reference
-traces:
+Lemma step_fun_complete : forall c oev c',
+  step c oev c' -> step_fun c = Some (oev, c').
+```
 
-- Load→Store: `[EvLoad TyF32 …; EvStore TyF32 …]`
-- Barrier: `[EvBarrier]`
-- Acquire/Release: `[EvAtomicStoreRelease …; EvAtomicLoadAcquire …]`
+Therefore computations performed by `MIRRun.run` describe steps admitted by the
+inductive relation, and every inductive step is reproduced by `step_fun`.
 
-Seeing those lists means the deterministic runner (`MIRRun.run`) matches the
-inductive `step` rules for the Step 2 instruction subset.
+`MIRConcurrent.v` lifts the same per-thread relation to a machine with a shared
+memory, multiple `(thread id, code, environment)` records, and a thread-tagged
+event trace. A machine step nondeterministically chooses any thread whose next
+statement can step. `MIRTests.v` proves that either of two runnable threads can
+be selected from the same initial machine.
 
-## Extending the tests
+Build the checked development with:
 
-Edit `coq/MIRTests.v` to add new programs, then rerun `make -C coq all`. Each
-`Eval compute in (MIRRun.run fuel cfg)` will print the resulting trace so you can
-compare it with expectations.
+```sh
+eval "$(opam env)"
+make -C coq all
+```
 
+This remains a Rust-like statement language, not full rustc MIR: it has no basic
+blocks, terminators, place projections, panic edges, or loop representation.

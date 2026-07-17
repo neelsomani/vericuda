@@ -1,51 +1,41 @@
-# Step 5 Bridge Lemmas & Trace Checks
+# Event Translation and Message-Passing Results
 
-This step cements the MIR→PTX bridge by proving the shape lemmas for the
-translator and adding a regression that locks down signed 32-bit payloads. It
-also reminds you to activate your `opam` switch so `coq_makefile` is available.
+## Structural translation checks
 
-## Shell setup
+`coq/Translate.v` maps one MIR-flavored event to one local PTX-style event and
+maps thread-tagged traces without changing the tags. `coq/Soundness.v` contains
+small regression lemmas for barrier, release-store, acquire-load, trace length,
+and per-event shape.
 
-Note: Before running the demo pipeline in a fresh shell:
+These lemmas are by construction. In particular, `translate_trace_shape`
+follows from `map`; it is a useful change detector, not a verified-translation
+or memory-model theorem.
 
-```
+## Semantic event layer
+
+The concurrency-sensitive definitions are separate:
+
+- `PTXRelations.v` treats reads-from as a supplied candidate and checks
+  same-address/same-value edges rather than selecting the last list-order store.
+- `PTXHB.v` defines per-thread program order, SYS release/acquire
+  synchronizes-with, their transitive happens-before closure, and consistency.
+- `MP.v` proves the two message-passing results.
+
+The acquire/release theorem uses an actual cross-thread happens-before path to
+reject the weak read. The relaxed theorem constructs a reads-from witness and
+proves that it is consistent, demonstrating that the model permits the weak
+outcome when synchronization is absent.
+
+## Run the checks
+
+```sh
 eval "$(opam env)"
-```
-
-## New lemmas in `coq/Soundness.v`
-
-The bridge now proves small-but-useful facts:
-
-- `barrier_ok`: MIR barriers map to `EvBarrier ScopeCTA`.
-- `atomic_store_release_ok`: release stores produce the expected PTX store.
-- `atomic_load_acquire_ok`: acquire loads become PTX acquire loads.
-- `translate_trace_length`: the per-event translation preserves trace length.
-- `translate_trace_shape`: a `Forall2` relation stating each MIR event maps to
-  the right PTX constructor and payload fields.
-
-These are all by construction—each proof is a reflexive computation—but they
-provide the hooks the follow-up soundness proof will use.
-
-## Regression: `i32` payloads
-
-`coq/MIRTests.v` now includes `prog_i32`, a two-statement load/store sequence
-over `TyI32`. The translated PTX events must carry `MemS32`, guarding against an
-accidental switch to `MemU32`.
-
-```
-Example trans_i32_ok :
-  TR.translate_trace tr_i32 =
-    [ P.EvLoad  P.space_global P.sem_relaxed None P.MemS32 5000 7
-    ; P.EvStore P.space_global P.sem_relaxed None P.MemS32 6000 7 ].
-```
-
-## End-to-end check
-
-Run:
-
-```
 make demo
 ```
 
-This re-dumps MIR for both kernels, regenerates `coq/examples/*_gen.v`, and
-rebuilds the Coq development including the new lemmas and regressions.
+The demo rebuilds MIR and PTX, checks translator failure modes, validates the
+observed PTX memory-operation forms, and asks Coq to type-check both MP theorems.
+
+The local event layer is not imported from or proved equivalent to Lustig et
+al.'s PTX model. That future linkage, and the general Rust-to-PTX soundness
+theorem, remain outside this artifact.

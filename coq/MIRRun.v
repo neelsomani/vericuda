@@ -99,6 +99,55 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
       end
   end.
 
+(** The executable and relational presentations describe exactly the same
+    one-thread step.  These lemmas make computations performed by [run]
+    evidence about [MIRSemantics.step], rather than an independent model. *)
+Lemma step_fun_sound : forall c oev c',
+  step_fun c = Some (oev, c') -> MS.step c oev c'.
+Proof.
+  intros [code rho memory] oev c' Hrun.
+  destruct code as [|instruction rest]; cbn in Hrun; try discriminate.
+  destruct instruction as
+    [x rhs | x ptr ty | ptr rhs ty | x ptr ty | ptr rhs ty
+    | | cond then_branch else_branch | body]; cbn in Hrun.
+  - destruct (MS.eval_expr rho rhs) as [value|] eqn:Heval; try discriminate.
+    inversion Hrun; subst. now apply MS.StepAssign.
+  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
+    destruct (MS.mem_read memory addr) as [value|] eqn:Hread; try discriminate.
+    inversion Hrun; subst. now eapply MS.StepLoad.
+  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
+    destruct (MS.eval_expr rho rhs) as [value|] eqn:Heval; try discriminate.
+    inversion Hrun; subst. now eapply MS.StepStore.
+  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
+    destruct (MS.mem_read memory addr) as [value|] eqn:Hread; try discriminate.
+    inversion Hrun; subst. now eapply MS.StepAtomicLoadAcquire.
+  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
+    destruct (MS.eval_expr rho rhs) as [value|] eqn:Heval; try discriminate.
+    inversion Hrun; subst. now eapply MS.StepAtomicStoreRelease.
+  - inversion Hrun; subst. apply MS.StepBarrier.
+  - destruct (MS.eval_bool rho cond) as [branch|] eqn:Hcond; try discriminate.
+    destruct branch.
+    + inversion Hrun; subst. now apply MS.StepIfTrue.
+    + inversion Hrun; subst. now apply MS.StepIfFalse.
+  - inversion Hrun; subst. apply MS.StepSeq.
+Qed.
+
+Lemma step_fun_complete : forall c oev c',
+  MS.step c oev c' -> step_fun c = Some (oev, c').
+Proof.
+  intros c oev c' Hstep.
+  inversion Hstep; subst; cbn.
+  - now rewrite H.
+  - now rewrite H, H0.
+  - now rewrite H, H0.
+  - now rewrite H, H0.
+  - now rewrite H, H0.
+  - reflexivity.
+  - now rewrite H.
+  - now rewrite H.
+  - reflexivity.
+Qed.
+
 Fixpoint run (fuel : nat) (c : MS.cfg) : list M.event_mir * MS.cfg :=
   match fuel with
   | O => ([], c)

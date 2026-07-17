@@ -1,10 +1,13 @@
 MIRSyntax.v
 MIRSemantics.v
 MIRRun.v
-MIRTests.v
-PTXImports.v
+MIRConcurrent.v
+PTXEvents.v
 PTXRelations.v
+PTXHB.v
 Translate.v
-Soundness.v
 examples/saxpy_gen.v
 examples/atomic_flag_gen.v
+MIRTests.v
+Soundness.v
+MP.v

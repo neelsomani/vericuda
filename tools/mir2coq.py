@@ -10,7 +10,8 @@ Input expectations
 ------------------
 - A single function MIR dump produced by `rustc -Z dump-mir`.
 - We only care about loads, stores, atomic acquire/release calls, pointer adds,
-  and the occasional barrier call.  Everything else is ignored.
+  and the occasional barrier call.  Unsupported control flow is diagnosed and
+  omitted; unsupported values/types are rejected rather than guessed.
 
 Output
 ------
@@ -32,6 +33,10 @@ import pathlib
 import re
 import sys
 from typing import Dict, List, Optional, Sequence, Tuple
+
+
+class TranslationError(ValueError):
+    """The input left the curated MIR fragment and cannot be translated safely."""
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +203,15 @@ def classify_type(raw: str) -> TypeInfo:
     if "AtomicU32" in raw:
         return TypeInfo(kind="other", mir_ty="TyU32")
 
-    return TypeInfo(kind="other", mir_ty=None)
+    # Known control-only/compiler bookkeeping types are recorded but never
+    # silently used as memory payloads.
+    if (
+        raw in {"()", "!", "core::sync::atomic::Ordering"}
+        or (raw.startswith("(") and raw.endswith(")"))
+    ):
+        return TypeInfo(kind="other", mir_ty=None)
+
+    raise TranslationError(f"unsupported MIR type: {raw}")
 
 
 def pointee_type(raw: str) -> str:
@@ -206,7 +219,9 @@ def pointee_type(raw: str) -> str:
     if "AtomicU32" in raw:
         return "TyU32"
     alias = TYPE_ALIASES.get(raw)
-    return alias or "TyU32"
+    if alias:
+        return alias
+    raise TranslationError(f"unsupported pointer element type: {raw}")
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +252,12 @@ RE_ATOMIC_LOAD = re.compile(
 RE_ATOMIC_STORE = re.compile(
     r"^\s*(?:{ident}\s*=\s*)?AtomicU\d+::store\((?P<args>.+)\)".format(ident=IDENT)
 )
-RE_BARRIER = re.compile(r"barrier|syncthreads", re.IGNORECASE)
+RE_BARRIER = re.compile(r"(?:\bbarrier|\bsyncthreads)\s*\(", re.IGNORECASE)
+RE_BASIC_BLOCK = re.compile(r"^bb(?P<block>\d+):\s*\{")
+RE_GOTO = re.compile(r"^goto\s*->\s*bb(?P<target>\d+)\s*;")
+RE_SWITCH = re.compile(r"^switchInt\s*\(")
+RE_ASSERT_TERMINATOR = re.compile(r"^assert\s*\(")
+RE_CALL_EDGES = re.compile(r"->\s*\[(?:return|success):")
 RE_ORDERING_SET = re.compile(
     r"^\s*(?P<dst>{ident})\s*=\s*(?:core::sync::atomic::Ordering::)?(?P<ord>Acquire|Release|Relaxed|SeqCst|AcqRel|ReleaseAcquire|Consume)\s*;".format(
         ident=IDENT
@@ -275,20 +295,21 @@ def parse_operand(token: str) -> Expr:
             return BoolConst(True)
         if payload == "false":
             return BoolConst(False)
-        m = re.match(r"([-+]?\d+)_([iu](?:32|64)|usize|isize)", payload)
+        m = re.fullmatch(r"([-+]?\d+)_([iu](?:32|64)|usize|isize)", payload)
         if m:
             value, suffix = m.groups()
-            ctor = {
+            constructors = {
                 "i32": "M.VI32",
                 "isize": "M.VI32",
                 "u32": "M.VU32",
                 "usize": "M.VU64",
                 "u64": "M.VU64",
-                "i64": "M.VI32",
-            }.get(suffix, "M.VI32")
+            }
+            ctor = constructors.get(suffix)
+            if ctor is None:
+                raise TranslationError(f"unsupported integer constant: {token}")
             return Const(ctor=ctor, value=value)
-        # Fallback: treat as i32 constant.
-        return Const(ctor="M.VI32", value=payload.split("_")[0])
+        raise TranslationError(f"unsupported MIR constant: {token}")
 
     return Var(token)
 
@@ -371,17 +392,67 @@ def ordering_from_token(token: str, bindings: Dict[str, str]) -> str:
     return normalize_ordering(token)
 
 
-def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr], Dict[str, str]]:
+def require_mir_type(
+    types: Dict[str, TypeInfo], name: str, context: str
+) -> str:
+    info = types.get(name)
+    if info is None or info.mir_ty is None:
+        raise TranslationError(
+            f"cannot determine supported MIR type for {name} ({context})"
+        )
+    return info.mir_ty
+
+
+def parse_statements(
+    lines: Sequence[str],
+) -> Tuple[List[Stmt], Dict[str, Expr], Dict[str, str], List[str]]:
     types = collect_types(lines)
     ptr_targets = infer_pointer_targets(types)
     derived_exprs: Dict[str, Expr] = {}
     stmts: List[Stmt] = []
     ordering_bindings: Dict[str, str] = {}
+    diagnostics: List[str] = []
+    current_block: Optional[int] = None
 
-    for raw in lines:
-        line = raw.strip()
+    for line_number, raw in enumerate(lines, start=1):
+        # rustc appends comments such as `// scope N at ...` to statements.
+        # They are metadata, not part of the statement being matched.
+        line = raw.split("//", 1)[0].strip()
         if not line or line.startswith("//"):
             continue
+
+        m_block = RE_BASIC_BLOCK.match(line)
+        if m_block:
+            current_block = int(m_block.group("block"))
+            continue
+
+        m_goto = RE_GOTO.match(line)
+        if m_goto:
+            target = int(m_goto.group("target"))
+            if current_block is not None and target <= current_block:
+                diagnostics.append(
+                    f"line {line_number}: loop/back-edge bb{current_block} -> "
+                    f"bb{target} is not translated; output remains straight-line"
+                )
+            else:
+                diagnostics.append(
+                    f"line {line_number}: goto terminator is not translated: {line}"
+                )
+
+        if RE_SWITCH.match(line):
+            diagnostics.append(
+                f"line {line_number}: switchInt terminator is not translated; "
+                "branch structure is omitted"
+            )
+        elif RE_ASSERT_TERMINATOR.match(line):
+            diagnostics.append(
+                f"line {line_number}: assert terminator is not translated; "
+                "success/unwind edges are omitted"
+            )
+        elif RE_CALL_EDGES.search(line):
+            diagnostics.append(
+                f"line {line_number}: call return/unwind edges are not translated"
+            )
 
         m_ord = RE_ORDERING_SET.match(line)
         if m_ord:
@@ -414,8 +485,7 @@ def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr],
         if m_load:
             dst = m_load.group("dst")
             ptr = m_load.group("ptr")
-            ty_info = types.get(dst)
-            mir_ty = ty_info.mir_ty if ty_info and ty_info.mir_ty else "TyU32"
+            mir_ty = require_mir_type(types, dst, "load destination")
             stmts.append(LoadStmt(dst=dst, addr=expr_for_pointer(ptr, derived_exprs), ty=mir_ty))
             continue
 
@@ -424,7 +494,11 @@ def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr],
             ptr = m_store.group("ptr")
             rhs = m_store.group("rhs")
             addr_expr = expr_for_pointer(ptr, derived_exprs)
-            elem_ty = ptr_targets.get(ptr, "TyU32")
+            elem_ty = ptr_targets.get(ptr)
+            if elem_ty is None:
+                raise TranslationError(
+                    f"cannot determine pointer element type for store through {ptr}"
+                )
             stmts.append(
                 StoreStmt(
                     addr=addr_expr,
@@ -439,11 +513,11 @@ def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr],
             dst = m_at_load.group("dst")
             args = split_args(m_at_load.group("args"))
             if len(args) < 2 or ordering_from_token(args[-1], ordering_bindings) != "Acquire":
-                print(f"error: unsupported atomic load ordering in line: {line}", file=sys.stderr)
-                sys.exit(2)
+                raise TranslationError(
+                    f"unsupported atomic load ordering in line: {line}"
+                )
             addr_expr = parse_operand(args[0])
-            ty_info = types.get(dst)
-            mir_ty = ty_info.mir_ty if ty_info and ty_info.mir_ty else "TyU32"
+            mir_ty = require_mir_type(types, dst, "atomic load destination")
             stmts.append(AtomicLoadStmt(dst=dst, addr=addr_expr, ty=mir_ty))
             continue
 
@@ -451,12 +525,17 @@ def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr],
         if m_at_store:
             args = split_args(m_at_store.group("args"))
             if len(args) < 3 or ordering_from_token(args[-1], ordering_bindings) != "Release":
-                print(f"error: unsupported atomic store ordering in line: {line}", file=sys.stderr)
-                sys.exit(2)
+                raise TranslationError(
+                    f"unsupported atomic store ordering in line: {line}"
+                )
             addr_expr = parse_operand(args[0])
             val_expr = parse_expr(args[1])
             ptr_name = operand_base(args[0])
-            ty = ptr_targets.get(ptr_name or "", "TyU32")
+            ty = ptr_targets.get(ptr_name or "")
+            if ty is None:
+                raise TranslationError(
+                    f"cannot determine atomic pointer element type in line: {line}"
+                )
             stmts.append(
                 AtomicStoreStmt(
                     addr=addr_expr,
@@ -469,7 +548,7 @@ def parse_statements(lines: Sequence[str]) -> Tuple[List[Stmt], Dict[str, Expr],
         if RE_BARRIER.search(line):
             stmts.append(BarrierStmt())
 
-    return stmts, derived_exprs, ptr_targets
+    return stmts, derived_exprs, ptr_targets, diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +615,14 @@ def main() -> int:
         return 1
 
     lines = args.input.read_text().splitlines()
-    stmts, _, _ = parse_statements(lines)
+    try:
+        stmts, _, _, diagnostics = parse_statements(lines)
+    except TranslationError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+    for diagnostic in diagnostics:
+        print(f"[mir2coq] WARNING: {diagnostic}", file=sys.stderr)
 
     module_name = module_from_path(args.output, args.module_name)
     coq_src = coq_module(module_name, stmts)

@@ -1,28 +1,39 @@
-# PTX ↔ Coq Cheat Sheet
+# Local PTX-Style Coq API
 
-## Event constructors we plan to touch
+`coq/PTXEvents.v` defines a small event vocabulary owned by this repository. It
+does not import the Coq PTX model of Lustig et al.; linkage to that model is
+future work.
 
-- `PTX.event.EvLoad` / `PTX.event.EvStore` (carry memory space, ordering, optional scope)
-- `PTX.event.EvBarrier`
-- `PTX.scope_cta`, `PTX.scope_sys`
-- `PTX.mem_semantics.relaxed`
-- `PTX.mem_semantics.acquire`
-- `PTX.mem_semantics.release`
-- `PTX.space_global`
+## Event vocabulary
 
-## Types and helper aliases
+- Spaces: `PTX.SpaceGlobal`, `PTX.SpaceShared`
+- Semantics: `PTX.SemRelaxed`, `PTX.SemAcquire`, `PTX.SemRelease`
+- Scopes: `PTX.ScopeCTA`, `PTX.ScopeSYS`
+- Payload tags: `PTX.MemU32`, `PTX.MemS32`, `PTX.MemF32`, `PTX.MemU64`,
+  `PTX.MemPred`
+- Events:
+  - `PTX.EvLoad space sem (option scope) mem_ty addr value`
+  - `PTX.EvStore space sem (option scope) mem_ty addr value`
+  - `PTX.EvBarrier scope`
 
-- `PTX.addr` for 64-bit addresses
-- `PTX.reg32`, `PTX.reg64`, `PTX.pred` for register payloads
-- `PTX.f32` for 32-bit floats  
-  (note: in the MVP we use CTA scope for barriers; atomics use SYS scope)
+Addresses and payloads are `Z`; there are no `PTX.addr`, `PTX.reg32`,
+`PTX.reg64`, `PTX.pred`, or `PTX.f32` types in this artifact.
 
-## Simplifications for the MVP
+## Trace and consistency API
 
-- Global memory only (switch to shared/local later)
-- Relaxed non-atomic loads/stores (no scope tag)
-- Single acquire/release pair for atomics (SYS scope)
-- Barriers are CTA-scoped only (`PTX.EvBarrier scope_cta`)
-- Payloads are carried as `Z` with a lane tag (`mem_ty`) indicating width/signedness;  
-  `f32` are IEEE-754 bit patterns in `Z`, and `bool` is encoded as 0/1  
-  (no `.pred` events emitted in this step)
+`PTXRelations.trace` is `list (nat * PTX.event)`, so every event retains its
+thread id. An `rf_map` is an execution candidate of type `nat -> option nat`.
+It is not derived from the preceding event in list order.
+
+`coq/PTXHB.v` defines:
+
+- `po`: increasing trace indices from the same thread;
+- `sw`: a global SYS release store read by a global SYS acquire load;
+- `hb`: transitive closure of `po ∪ sw`;
+- `rf_well_formed`: loads and selected stores agree on address and value;
+- `consistent`: well-formed reads-from, no happens-before-overwritten read, and
+  irreflexive happens-before.
+
+This scope is intentionally narrow: SYS release/acquire and global space only.
+Barriers carry a tag but currently add no ordering edge. There are no fences,
+CTA/shared-memory rules, RMW operations, or coherence-order axioms.
