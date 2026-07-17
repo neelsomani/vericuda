@@ -57,4 +57,13 @@ Inductive machine_step : machine -> machine -> Prop :=
         (MS.cfg_mem next)
         (append_event (th_id current) oev trace)).
 
+(** Reflexive-transitive execution of the concurrent machine. *)
+Inductive machine_steps : machine -> machine -> Prop :=
+| MachineDone : forall m,
+    machine_steps m m
+| MachineMore : forall m m' m'',
+    machine_step m m' ->
+    machine_steps m' m'' ->
+    machine_steps m m''.
+
 End MIRConcurrent.

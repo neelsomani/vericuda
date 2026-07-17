@@ -26,8 +26,20 @@ Definition mp_initialization : R.trace :=
   ; (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 flag_addr 0)
   ].
 
-(** The four program actions from the litmus test. *)
-Definition mp_actions_acqrel : R.trace :=
+(** The four actions in the concrete acquire/release execution produced by the
+    MIR machine: both loads observe thread 0's stores. *)
+Definition mp_actions_acqrel_good : R.trace :=
+  [ (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
+  ; (0%nat, P.EvStore P.SpaceGlobal P.SemRelease
+                      (Some P.ScopeSYS) P.MemU32 flag_addr 1)
+  ; (1%nat, P.EvLoad P.SpaceGlobal P.SemAcquire
+                     (Some P.ScopeSYS) P.MemU32 flag_addr 1)
+  ; (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
+  ].
+
+(** The rejected acquire/release candidate has the same program actions but
+    posits the weak [flag = 1, data = 0] observation. *)
+Definition mp_actions_acqrel_weak : R.trace :=
   [ (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
   ; (0%nat, P.EvStore P.SpaceGlobal P.SemRelease
                       (Some P.ScopeSYS) P.MemU32 flag_addr 1)
@@ -43,20 +55,86 @@ Definition mp_actions_relaxed : R.trace :=
   ; (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 0)
   ].
 
-Definition mp_trace_acqrel : R.trace :=
-  mp_initialization ++ mp_actions_acqrel.
+Definition mp_trace_acqrel_good : R.trace :=
+  mp_initialization ++ mp_actions_acqrel_good.
+
+Definition mp_trace_acqrel_weak : R.trace :=
+  mp_initialization ++ mp_actions_acqrel_weak.
 
 Definition mp_trace_relaxed : R.trace :=
   mp_initialization ++ mp_actions_relaxed.
 
+(** These hardcoded indices are specific to the six-event MP traces above:
+    indices 4 and 5 are respectively the flag and data loads. *)
 Definition weak_outcome (tr : R.trace) (rfc : R.rf_map) : Prop :=
   R.load_at tr 4%nat flag_addr 1 /\
   R.load_at tr 5%nat data_addr 0 /\
   rfc 4%nat = Some 3%nat /\
   rfc 5%nat = Some 0%nat.
 
+Lemma mp_trace_load_indices :
+  R.load_at mp_trace_acqrel_good 4%nat flag_addr 1 /\
+  R.load_at mp_trace_acqrel_good 5%nat data_addr 1 /\
+  R.load_at mp_trace_acqrel_weak 4%nat flag_addr 1 /\
+  R.load_at mp_trace_acqrel_weak 5%nat data_addr 0 /\
+  R.load_at mp_trace_relaxed 4%nat flag_addr 1 /\
+  R.load_at mp_trace_relaxed 5%nat data_addr 0.
+Proof. repeat split; reflexivity. Qed.
+
+(** Two events describe the same program action when their instruction fields
+    agree.  A store's written value is part of its action; a load's observed
+    value is an execution result and is intentionally ignored. *)
+Definition same_program_action
+    (left right : nat * P.event) : Prop :=
+  match left, right with
+  | (left_tid, P.EvLoad left_sp left_sem left_sc left_ty left_addr _),
+    (right_tid, P.EvLoad right_sp right_sem right_sc right_ty right_addr _) =>
+      left_tid = right_tid /\
+      left_sp = right_sp /\
+      left_sem = right_sem /\
+      left_sc = right_sc /\
+      left_ty = right_ty /\
+      left_addr = right_addr
+  | (left_tid, P.EvStore left_sp left_sem left_sc left_ty left_addr left_val),
+    (right_tid, P.EvStore right_sp right_sem right_sc right_ty right_addr right_val) =>
+      left_tid = right_tid /\
+      left_sp = right_sp /\
+      left_sem = right_sem /\
+      left_sc = right_sc /\
+      left_ty = right_ty /\
+      left_addr = right_addr /\
+      left_val = right_val
+  | (left_tid, P.EvBarrier left_scope),
+    (right_tid, P.EvBarrier right_scope) =>
+      left_tid = right_tid /\ left_scope = right_scope
+  | _, _ => False
+  end.
+
+Definition same_program_trace (left right : R.trace) : Prop :=
+  Forall2 same_program_action left right.
+
+Lemma mp_acqrel_same_program :
+  same_program_trace mp_trace_acqrel_good mp_trace_acqrel_weak.
+Proof.
+  repeat constructor; repeat split; reflexivity.
+Qed.
+
+(** The two candidates are identical through index 4 and both end at index 5.
+    Their final events have every field in common except the observed value. *)
+Lemma mp_acqrel_only_index5_value_differs :
+  firstn 5 mp_trace_acqrel_good = firstn 5 mp_trace_acqrel_weak /\
+  length mp_trace_acqrel_good = 6%nat /\
+  length mp_trace_acqrel_weak = 6%nat /\
+  nth_error mp_trace_acqrel_good 5%nat =
+    Some (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None
+      P.MemU32 data_addr 1) /\
+  nth_error mp_trace_acqrel_weak 5%nat =
+    Some (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None
+      P.MemU32 data_addr 0).
+Proof. repeat split; reflexivity. Qed.
+
 Lemma mp_acqrel_hb_init_to_data : forall rfc,
-  H.hb mp_trace_acqrel rfc 0%nat 2%nat.
+  H.hb mp_trace_acqrel_weak rfc 0%nat 2%nat.
 Proof.
   intro rfc. apply t_step. left. unfold H.po.
   split; [lia|]. exists 0%nat. cbn. auto.
@@ -64,7 +142,7 @@ Qed.
 
 Lemma mp_acqrel_hb_data_to_load : forall rfc,
   rfc 4%nat = Some 3%nat ->
-  H.hb mp_trace_acqrel rfc 2%nat 5%nat.
+  H.hb mp_trace_acqrel_weak rfc 2%nat 5%nat.
 Proof.
   intros rfc Hrf.
   eapply t_trans with (y := 3%nat).
@@ -77,8 +155,8 @@ Proof.
 Qed.
 
 Theorem mp_acqrel_forbids_weak : forall rfc,
-  H.consistent mp_trace_acqrel rfc ->
-  ~ weak_outcome mp_trace_acqrel rfc.
+  H.consistent mp_trace_acqrel_weak rfc ->
+  ~ weak_outcome mp_trace_acqrel_weak rfc.
 Proof.
   intros rfc [_ [Hoverwrite _]] Hweak.
   destruct Hweak as [_ [_ [Hflag Hdata]]].

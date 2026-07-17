@@ -11,3 +11,4 @@ examples/atomic_flag_gen.v
 MIRTests.v
 Soundness.v
 MP.v
+MPRealizable.v

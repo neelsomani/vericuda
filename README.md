@@ -34,7 +34,7 @@ larger result.
    Lemma mp_acqrel_realizable : exists m,
      machine_steps mp_initial_machine m /\
      mach_threads_all_done m /\
-     Translate.translate_trace (mach_trace m) = mp_trace_acqrel.
+     Translate.translate_trace (mach_trace m) = mp_trace_acqrel_good.
    ```
 
 4. A regex-driven prototype that extracts memory actions from `rustc -Z
@@ -71,9 +71,11 @@ an actual same-address, same-value store.
 
 `MPRealizable.mp_acqrel_realizable` constructs one six-step MIR-machine
 schedule—initializer, writer, then reader—and proves that its translated trace
-is exactly the strong acquire/release trace `mp_trace_acqrel`. The rejected
-`mp_trace_acqrel_weak` differs only in the final observed data value and is the
-candidate used by `mp_acqrel_forbids_weak`.
+is exactly `mp_trace_acqrel_good`. `MP.mp_acqrel_same_program` proves that this
+trace and `mp_trace_acqrel_weak` contain the same program actions, while
+`mp_acqrel_only_index5_value_differs` proves that they agree through index 4
+and differ only in the data-load value at index 5. The weak candidate is the
+trace rejected by `mp_acqrel_forbids_weak`.
 
 ## Repository map
 
@@ -87,7 +89,7 @@ candidate used by `mp_acqrel_forbids_weak`.
 | `coq/PTXRelations.v` | Tagged trace accessors and candidate reads-from edges |
 | `coq/PTXHB.v` | `po`, `sw`, `hb`, reads-from well-formedness, consistency |
 | `coq/MP.v` | Acquire/release forbidden and relaxed permitted MP theorems |
-| `coq/MPRealizable.v` | Explicit MIR-machine realization of `mp_trace_acqrel` |
+| `coq/MPRealizable.v` | Explicit MIR-machine realization of `mp_trace_acqrel_good` |
 | `coq/Translate.v` | Thread-preserving MIR-event to PTX-event mapping |
 | `tools/mir2coq.py` | Curated MIR text extractor |
 | `tools/check_ptx.sh` | Syntactic extracted-event/PTX validation |
@@ -157,6 +159,11 @@ equal the straight-line extracted trace.
 - The emitted-PTX comparison is a syntactic validation, not a proof of compiler
   correctness or event correspondence.
 - The message-passing result is a litmus-test theorem, not the general
-  Rust-to-PTX soundness theorem. The acquire/release trace is proved realizable
-  by one explicit MIR-machine schedule; the relaxed weak trace remains a
-  model-level witness because the MIR fragment has no relaxed atomic syntax.
+  Rust-to-PTX soundness theorem. The MIR machine is sequentially consistent:
+  its loads read current memory, so the explicit schedule emits only
+  `mp_trace_acqrel_good`. `mp_trace_acqrel_weak` is a same-program axiomatic
+  candidate rejected by consistency, not a machine execution. The relaxed weak
+  trace is also model-level because the MIR fragment has no relaxed atomic
+  syntax. Deriving the candidate-execution space from the operational machine,
+  or otherwise proving axiomatic/operational correspondence, remains future
+  work.
