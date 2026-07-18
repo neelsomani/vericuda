@@ -31,12 +31,17 @@ Definition z_of_val (v : M.val) : Z :=
   | M.VBool false => 0
   end.
 
-(* Week-1 policy helpers. *)
+(* PTX address-space and scope policy helpers. *)
 Definition space_global : P.space := P.space_global.
+Definition space_shared : P.space := P.space_shared.
 Definition scope_cta   : P.scope := P.scope_cta.
 Definition scope_sys   : P.scope := P.scope_sys.
 
-(* One MIR event maps to one PTX event. *)
+(** One MIR event maps to one local PTX-style event.  Only
+    [EvBarrierShared] receives the CTA tag consumed by [PTXHB.is_barrier]; the
+    legacy semantics-free barrier is retained as an inert SYS-tagged event.
+    Shared-space tags are modeling classifications, not compiler-correctness
+    claims about emitted pointer instructions. *)
 Definition translate_event (ev : M.event_mir) : P.event :=
   match ev with
   | M.EvLoad ty addr v =>
@@ -49,7 +54,14 @@ Definition translate_event (ev : M.event_mir) : P.event :=
   | M.EvAtomicStoreRelease ty addr v =>
       P.EvStore space_global P.sem_release (Some scope_sys)
                (mem_ty_of_mir ty) addr (z_of_val v)
-  | M.EvBarrier => P.EvBarrier scope_cta
+  | M.EvBarrier => P.EvBarrier scope_sys
+  | M.EvLoadShared ty addr v =>
+      P.EvLoad space_shared P.sem_relaxed None
+               (mem_ty_of_mir ty) addr (z_of_val v)
+  | M.EvStoreShared ty addr v =>
+      P.EvStore space_shared P.sem_relaxed None
+                (mem_ty_of_mir ty) addr (z_of_val v)
+  | M.EvBarrierShared => P.EvBarrier scope_cta
   end.
 
 (** Concurrent traces retain the identity of the thread that emitted each

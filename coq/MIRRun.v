@@ -1,4 +1,4 @@
-From Coq Require Import ZArith List String Bool.
+From Coq Require Import ZArith List String Bool Lia.
 
 Import ListNotations.
 Open Scope string_scope.
@@ -12,7 +12,8 @@ Module MIRRun.
 Module M := MIR.
 Module MS := MIRSemantics.
 
-Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
+Definition step_fun (tid : nat) (c : MS.cfg)
+    : option (option M.event_mir * MS.cfg) :=
   match MS.cfg_code c with
   | [] => None
   | instr :: rest =>
@@ -20,7 +21,7 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
       let μ := MS.cfg_mem c in
       match instr with
       | M.SAssign x rhs =>
-          match MS.eval_expr ρ rhs with
+          match MS.eval_expr tid ρ rhs with
           | Some v =>
               let cfg' := {| MS.cfg_code := rest;
                               MS.cfg_env := MS.env_set ρ x v;
@@ -29,7 +30,7 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
           | None => None
           end
       | M.SLoad x ptr ty =>
-          match MS.eval_addr ρ ptr with
+          match MS.eval_addr tid ρ ptr with
           | Some addr =>
               match MS.mem_read μ addr with
               | Some v =>
@@ -42,7 +43,7 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
           | None => None
           end
       | M.SStore ptr rhs ty =>
-          match MS.eval_addr ρ ptr, MS.eval_expr ρ rhs with
+          match MS.eval_addr tid ρ ptr, MS.eval_expr tid ρ rhs with
           | Some addr, Some v =>
               let cfg' := {| MS.cfg_code := rest;
                               MS.cfg_env := ρ;
@@ -51,7 +52,7 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
           | _, _ => None
           end
       | M.SAtomicLoadAcquire x ptr ty =>
-          match MS.eval_addr ρ ptr with
+          match MS.eval_addr tid ρ ptr with
           | Some addr =>
               match MS.mem_read μ addr with
               | Some v =>
@@ -64,7 +65,7 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
           | None => None
           end
       | M.SAtomicStoreRelease ptr rhs ty =>
-          match MS.eval_addr ρ ptr, MS.eval_expr ρ rhs with
+          match MS.eval_addr tid ρ ptr, MS.eval_expr tid ρ rhs with
           | Some addr, Some v =>
               let cfg' := {| MS.cfg_code := rest;
                               MS.cfg_env := ρ;
@@ -77,8 +78,11 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
                           MS.cfg_env := ρ;
                           MS.cfg_mem := μ |} in
           Some (Some M.EvBarrier, cfg')
+      | M.SLoadShared _ _ _ => None
+      | M.SStoreShared _ _ _ => None
+      | M.SBarrierShared => None
       | M.SIf cond t_branch f_branch =>
-          match MS.eval_bool ρ cond with
+          match MS.eval_bool tid ρ cond with
           | Some true =>
               let cfg' := {| MS.cfg_code := t_branch ++ rest;
                               MS.cfg_env := ρ;
@@ -96,46 +100,67 @@ Definition step_fun (c : MS.cfg) : option (option M.event_mir * MS.cfg) :=
                           MS.cfg_env := ρ;
                           MS.cfg_mem := μ |} in
           Some (None, cfg')
+      | M.SFor counter bound body =>
+          if Z.leb bound 0 then
+            let cfg' := {| MS.cfg_code := rest;
+                            MS.cfg_env := ρ;
+                            MS.cfg_mem := μ |} in
+            Some (None, cfg')
+          else
+            let cfg' := {| MS.cfg_code :=
+                              MS.unroll_for counter 0 bound body ++ rest;
+                            MS.cfg_env := ρ;
+                            MS.cfg_mem := μ |} in
+            Some (None, cfg')
       end
   end.
 
 (** The executable and relational presentations describe exactly the same
-    one-thread step.  These lemmas make computations performed by [run]
-    evidence about [MIRSemantics.step], rather than an independent model. *)
-Lemma step_fun_sound : forall c oev c',
-  step_fun c = Some (oev, c') -> MS.step c oev c'.
+    one-thread step.  Both are deliberately partial when a shared-memory
+    statement is at the head: those statements only step in the machine-level
+    semantics.  Thus computations performed by [run] are evidence about
+    [MIRSemantics.step], not an independent or shared-memory model. *)
+Lemma step_fun_sound : forall tid c oev c',
+  step_fun tid c = Some (oev, c') -> MS.step tid c oev c'.
 Proof.
-  intros [code rho memory] oev c' Hrun.
+  intros tid [code rho memory] oev c' Hrun.
   destruct code as [|instruction rest]; cbn in Hrun; try discriminate.
   destruct instruction as
     [x rhs | x ptr ty | ptr rhs ty | x ptr ty | ptr rhs ty
-    | | cond then_branch else_branch | body]; cbn in Hrun.
-  - destruct (MS.eval_expr rho rhs) as [value|] eqn:Heval; try discriminate.
+    | | x ptr ty | ptr rhs ty | | cond then_branch else_branch | body
+    | counter bound body]; cbn in Hrun.
+  - destruct (MS.eval_expr tid rho rhs) as [value|] eqn:Heval; try discriminate.
     inversion Hrun; subst. now apply MS.StepAssign.
-  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
+  - destruct (MS.eval_addr tid rho ptr) as [addr|] eqn:Haddr; try discriminate.
     destruct (MS.mem_read memory addr) as [value|] eqn:Hread; try discriminate.
     inversion Hrun; subst. now eapply MS.StepLoad.
-  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
-    destruct (MS.eval_expr rho rhs) as [value|] eqn:Heval; try discriminate.
+  - destruct (MS.eval_addr tid rho ptr) as [addr|] eqn:Haddr; try discriminate.
+    destruct (MS.eval_expr tid rho rhs) as [value|] eqn:Heval; try discriminate.
     inversion Hrun; subst. now eapply MS.StepStore.
-  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
+  - destruct (MS.eval_addr tid rho ptr) as [addr|] eqn:Haddr; try discriminate.
     destruct (MS.mem_read memory addr) as [value|] eqn:Hread; try discriminate.
     inversion Hrun; subst. now eapply MS.StepAtomicLoadAcquire.
-  - destruct (MS.eval_addr rho ptr) as [addr|] eqn:Haddr; try discriminate.
-    destruct (MS.eval_expr rho rhs) as [value|] eqn:Heval; try discriminate.
+  - destruct (MS.eval_addr tid rho ptr) as [addr|] eqn:Haddr; try discriminate.
+    destruct (MS.eval_expr tid rho rhs) as [value|] eqn:Heval; try discriminate.
     inversion Hrun; subst. now eapply MS.StepAtomicStoreRelease.
   - inversion Hrun; subst. apply MS.StepBarrier.
-  - destruct (MS.eval_bool rho cond) as [branch|] eqn:Hcond; try discriminate.
+  - discriminate.
+  - discriminate.
+  - discriminate.
+  - destruct (MS.eval_bool tid rho cond) as [branch|] eqn:Hcond; try discriminate.
     destruct branch.
     + inversion Hrun; subst. now apply MS.StepIfTrue.
     + inversion Hrun; subst. now apply MS.StepIfFalse.
   - inversion Hrun; subst. apply MS.StepSeq.
+  - destruct (Z.leb bound 0) eqn:Hbound.
+    + inversion Hrun; subst. apply MS.StepForZero. now apply Z.leb_le.
+    + inversion Hrun; subst. apply MS.StepForUnfold. now apply Z.leb_gt.
 Qed.
 
-Lemma step_fun_complete : forall c oev c',
-  MS.step c oev c' -> step_fun c = Some (oev, c').
+Lemma step_fun_complete : forall tid c oev c',
+  MS.step tid c oev c' -> step_fun tid c = Some (oev, c').
 Proof.
-  intros c oev c' Hstep.
+  intros tid c oev c' Hstep.
   inversion Hstep; subst; cbn.
   - now rewrite H.
   - now rewrite H, H0.
@@ -146,16 +171,20 @@ Proof.
   - now rewrite H.
   - now rewrite H.
   - reflexivity.
+  - destruct (Z.leb bound 0) eqn:Hleb; [reflexivity|].
+    apply Z.leb_gt in Hleb. lia.
+  - destruct (Z.leb bound 0) eqn:Hleb; [|reflexivity].
+    apply Z.leb_le in Hleb. lia.
 Qed.
 
-Fixpoint run (fuel : nat) (c : MS.cfg) : list M.event_mir * MS.cfg :=
+Fixpoint run (tid fuel : nat) (c : MS.cfg) : list M.event_mir * MS.cfg :=
   match fuel with
   | O => ([], c)
   | S n =>
-      match step_fun c with
+      match step_fun tid c with
       | None => ([], c)
       | Some (oev, c') =>
-          let '(evs, c'') := run n c' in
+          let '(evs, c'') := run tid n c' in
           match oev with
           | None => (evs, c'')
           | Some ev => (ev :: evs, c'')

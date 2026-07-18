@@ -98,26 +98,27 @@ Definition trace_data_load : list (nat * M.event_mir) :=
   [(1%nat, M.EvLoad M.TyU32 MP.data_addr (M.VU32 1))].
 
 Definition mp_initial_machine : MC.machine :=
-  MC.mk_machine [initializer; writer; reader] MS.empty_mem [].
+  MC.mk_machine [initializer; writer; reader]
+    MS.empty_mem MS.empty_mem [].
 
 Definition after_init_data : MC.machine :=
   MC.mk_machine [initializer_after_data; writer; reader]
-    mem_init_data trace_init_data.
+    mem_init_data MS.empty_mem trace_init_data.
 Definition after_init_flag : MC.machine :=
   MC.mk_machine [done0; writer; reader]
-    mem_init_flag trace_init_flag.
+    mem_init_flag MS.empty_mem trace_init_flag.
 Definition after_data_one : MC.machine :=
   MC.mk_machine [done0; writer_after_data; reader]
-    mem_data_one trace_data_one.
+    mem_data_one MS.empty_mem trace_data_one.
 Definition after_flag_one : MC.machine :=
   MC.mk_machine [done0; done0; reader]
-    mem_flag_one trace_flag_one.
+    mem_flag_one MS.empty_mem trace_flag_one.
 Definition after_flag_load : MC.machine :=
   MC.mk_machine [done0; done0; reader_after_flag]
-    mem_flag_one trace_flag_load.
+    mem_flag_one MS.empty_mem trace_flag_load.
 Definition mp_final_machine : MC.machine :=
   MC.mk_machine [done0; done0; done1]
-    mem_flag_one trace_data_load.
+    mem_flag_one MS.empty_mem trace_data_load.
 
 Definition mach_threads_all_done (machine : MC.machine) : Prop :=
   Forall (fun thread => MC.th_code thread = []) (MC.mach_threads machine).

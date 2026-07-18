@@ -4,17 +4,19 @@ RUSTC ?= rustc
 MIR_DUMP_DIR ?= mir_dump
 SAXPY_SRC := examples/saxpy.rs
 ATOMIC_SRC := examples/atomic_flag.rs
+REDUCTION_SRC := examples/reduction.rs
 
 COQ_DIR := coq
 PTX_DIR := target
 SAXPY_PTX := $(PTX_DIR)/saxpy.ptx
 ATOMIC_PTX := $(PTX_DIR)/atomic_flag.ptx
+REDUCTION_PTX := $(PTX_DIR)/reduction.ptx
 
-.PHONY: demo translate mir-saxpy mir-atomic ptx check-ptx translator-test translator-validation coq
+.PHONY: demo translate mir-saxpy mir-atomic mir-reduction ptx check-ptx translator-test translator-validation coq
 
 demo: translate translator-test check-ptx translator-validation coq
 
-translate: mir-saxpy mir-atomic
+translate: mir-saxpy mir-atomic mir-reduction
 	@SAXPY_MIR=`ls -t $(MIR_DUMP_DIR)/saxpy.saxpy.*.PreCodegen.after.mir 2>/dev/null | head -n 1`; \
 	if [ -z "$$SAXPY_MIR" ]; then \
 	  echo "error: no saxpy PreCodegen MIR dump found" >&2; \
@@ -27,6 +29,13 @@ translate: mir-saxpy mir-atomic
 	  exit 1; \
 	fi; \
 	$(PYTHON) tools/mir2coq.py $$ATOMIC_MIR coq/examples/atomic_flag_gen.v
+	@REDUCTION_MIR=`ls -t $(MIR_DUMP_DIR)/reduction.reduction.*.PreCodegen.after.mir 2>/dev/null | head -n 1`; \
+	if [ -z "$$REDUCTION_MIR" ]; then \
+	  echo "error: no reduction PreCodegen MIR dump found" >&2; \
+	  exit 1; \
+	fi; \
+	$(PYTHON) tools/mir2coq.py --shared-param _1 \
+	  $$REDUCTION_MIR coq/examples/reduction_gen.v
 
 mir-saxpy:
 	@mkdir -p $(MIR_DUMP_DIR)
@@ -36,6 +45,10 @@ mir-atomic:
 	@mkdir -p $(MIR_DUMP_DIR)
 	RUSTFLAGS="-Zunstable-options" $(RUSTC) --crate-type=lib -Z dump-mir=all $(ATOMIC_SRC)
 
+mir-reduction:
+	@mkdir -p $(MIR_DUMP_DIR)
+	RUSTFLAGS="-Zunstable-options" $(RUSTC) --crate-type=lib -Z dump-mir=all $(REDUCTION_SRC)
+
 ptx:
 	@mkdir -p $(PTX_DIR)
 	$(RUSTC) --crate-type=lib --target nvptx64-nvidia-cuda \
@@ -43,6 +56,9 @@ ptx:
 	$(RUSTC) --crate-type=lib --target nvptx64-nvidia-cuda \
 		-C target-cpu=sm_70 -C link-dead-code=yes -O --emit=asm \
 		$(ATOMIC_SRC) -o $(ATOMIC_PTX)
+	$(RUSTC) --crate-type=lib --target nvptx64-nvidia-cuda \
+		-C target-cpu=sm_70 -C link-dead-code=yes -O --emit=asm \
+		$(REDUCTION_SRC) -o $(REDUCTION_PTX)
 
 check-ptx: translate ptx tools/check_ptx.sh
 	tools/check_ptx.sh

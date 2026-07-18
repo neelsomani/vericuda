@@ -29,11 +29,18 @@ It is not derived from the preceding event in list order.
 
 - `po`: increasing trace indices from the same thread;
 - `sw`: a global SYS release store read by a global SYS acquire load;
-- `hb`: transitive closure of `po ∪ sw`;
+- `bar`: strict pre-/post-ordering across same-count CTA barriers;
+- `hb`: transitive closure of `po ∪ sw ∪ bar`;
+- `barrier_uniform`: the explicit equal-barrier-count trace assumption;
 - `rf_well_formed`: loads and selected stores agree on address and value;
 - `consistent`: well-formed reads-from, no happens-before-overwritten read, and
   irreflexive happens-before.
 
-This scope is intentionally narrow: SYS release/acquire and global space only.
-Barriers carry a tag but currently add no ordering edge. There are no fences,
-CTA/shared-memory rules, RMW operations, or coherence-order axioms.
+This scope is intentionally narrow: SYS release/acquire plus one-CTA,
+count-matched shared barriers. CTA barrier events add ordering edges; legacy
+MIR barriers translate to SYS-tagged events and remain inert. There are no
+fences, multiple-CTA membership rules, RMW operations, general coherence-order
+axioms, or source-level divergence theorem. `MIRRelaxed` retains an optional
+stale-source diagnostic predicate, but its main shared-load transition is
+gate-free; overwritten reads are rejected by this API's `no_hb_overwrite`
+consistency clause.

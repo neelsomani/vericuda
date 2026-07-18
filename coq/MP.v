@@ -90,6 +90,29 @@ Definition mp_trace_acqrel_flag0_data1 : R.trace :=
 Definition mp_trace_relaxed : R.trace :=
   mp_initialization ++ mp_actions_relaxed.
 
+(** All five MP candidates are barrier-free.  This computational fact is what
+    keeps their theorem statements unchanged under the unified barrier-aware
+    happens-before relation. *)
+Lemma mp_traces_no_bar :
+  (forall idx, ~ H.is_barrier mp_trace_acqrel_good idx) /\
+  (forall idx, ~ H.is_barrier mp_trace_acqrel_weak idx) /\
+  (forall idx, ~ H.is_barrier mp_trace_acqrel_flag0_data0 idx) /\
+  (forall idx, ~ H.is_barrier mp_trace_acqrel_flag0_data1 idx) /\
+  (forall idx, ~ H.is_barrier mp_trace_relaxed idx).
+Proof.
+  repeat split; intros idx Hbar;
+    pose proof Hbar as Hbound;
+    apply H.is_barrier_in_bounds in Hbound;
+    unfold H.is_barrier, R.event_at, R.tagged_event_at,
+      mp_trace_acqrel_good, mp_trace_acqrel_weak,
+      mp_trace_acqrel_flag0_data0, mp_trace_acqrel_flag0_data1,
+      mp_trace_relaxed, mp_initialization, mp_actions_acqrel_good,
+      mp_actions_acqrel_weak, mp_actions_acqrel_flag0_data0,
+      mp_actions_acqrel_flag0_data1, mp_actions_relaxed in Hbar;
+    destruct idx as [|[|[|[|[|[|idx]]]]]];
+      cbn in Hbar; try contradiction; cbn in Hbound; lia.
+Qed.
+
 (** These hardcoded indices are specific to the six-event MP traces above:
     indices 4 and 5 are respectively the flag and data loads. *)
 Definition weak_outcome (tr : R.trace) (rfc : R.rf_map) : Prop :=
@@ -249,6 +272,19 @@ Proof.
   cbn in Hbound. lia.
 Qed.
 
+(** The MP traces contain no CTA barrier event, so the unified barrier-aware
+    [PTXHB.hb] adds no edges to this pre-existing litmus. *)
+Lemma mp_relaxed_no_bar : forall i j,
+  ~ H.bar mp_trace_relaxed i j.
+Proof.
+  intros i j. apply H.no_barrier_no_bar. intros idx Hbar.
+  pose proof (H.is_barrier_in_bounds mp_trace_relaxed idx Hbar) as Hbound.
+  unfold H.is_barrier, R.event_at, R.tagged_event_at,
+    mp_trace_relaxed, mp_initialization, mp_actions_relaxed in Hbar.
+  destruct idx as [|[|[|[|[|[|idx]]]]]];
+    cbn in Hbar; try contradiction; cbn in Hbound; lia.
+Qed.
+
 Definition same_thread (tr : R.trace) (i j : nat) : Prop :=
   exists tid, R.tid_at tr i = Some tid /\ R.tid_at tr j = Some tid.
 
@@ -266,9 +302,10 @@ Lemma mp_relaxed_hb_same_thread : forall rfc i j,
 Proof.
   intros rfc i j Hhb.
   induction Hhb as [i j Hedge | i j k Hij IHij Hjk IHjk].
-  - destruct Hedge as [Hpo | Hsw].
+  - destruct Hedge as [Hpo | [Hsw | Hbar]].
     + exact (proj2 Hpo).
     + exfalso. now apply (mp_relaxed_no_sw rfc i j).
+    + exfalso. now apply (mp_relaxed_no_bar i j).
   - eapply same_thread_trans; eauto.
 Qed.
 
@@ -277,9 +314,10 @@ Lemma mp_relaxed_hb_lt : forall rfc i j,
 Proof.
   intros rfc i j Hhb.
   induction Hhb as [i j Hedge | i j k Hij IHij Hjk IHjk].
-  - destruct Hedge as [Hpo | Hsw].
+  - destruct Hedge as [Hpo | [Hsw | Hbar]].
     + exact (proj1 Hpo).
     + exfalso. now apply (mp_relaxed_no_sw rfc i j).
+    + exfalso. now apply (mp_relaxed_no_bar i j).
   - lia.
 Qed.
 

@@ -56,9 +56,9 @@ Definition prog_acqrel : list M.stmt :=
 Definition mu_flag : MS.mem := mem_of_pairs [(3000, M.VU32 0%Z)].
 Definition cfg_flag : MS.cfg := MS.mk_cfg prog_acqrel MS.empty_env mu_flag.
 
-Definition trace_ls : list M.event_mir := fst (MR.run 10 cfg_ls).
-Definition trace_barrier : list M.event_mir := fst (MR.run 3 cfg_barrier).
-Definition trace_acqrel : list M.event_mir := fst (MR.run 10 cfg_flag).
+Definition trace_ls : list M.event_mir := fst (MR.run 0 10 cfg_ls).
+Definition trace_barrier : list M.event_mir := fst (MR.run 0 3 cfg_barrier).
+Definition trace_acqrel : list M.event_mir := fst (MR.run 0 10 cfg_flag).
 
 Example run_load_store_ok :
   trace_ls =
@@ -75,6 +75,42 @@ Example run_acqrel_ok :
     ; M.EvAtomicLoadAcquire M.TyU32 3000 (M.VU32 1%Z) ].
 Proof. reflexivity. Qed.
 
+Example eval_tid_lt_shift_ok :
+  MS.eval_expr 3 MS.empty_env M.ETid = Some (M.VU32 3) /\
+  MS.eval_expr 3 MS.empty_env (M.ELt M.ETid (M.EVal (M.VU32 4))) =
+    Some (M.VBool true) /\
+  MS.eval_expr 3 MS.empty_env
+    (M.EShr (M.EVal (M.VU32 4)) (M.EVal (M.VU32 2))) =
+    Some (M.VU32 1).
+Proof. repeat split; reflexivity. Qed.
+
+Example run_static_for_ok :
+  MS.cfg_code (snd (MR.run 2 8
+    (MS.mk_cfg [M.SFor "i" 3 [M.SAssign "last" (M.EVar "i")]]
+      MS.empty_env MS.empty_mem))) = [].
+Proof. reflexivity. Qed.
+
+Example shared_heads_are_per_thread_partial :
+  MR.step_fun 0
+    (MS.mk_cfg [M.SLoadShared "x" (M.EVal (M.VU64 0)) M.TyF32]
+      MS.empty_env MS.empty_mem) = None /\
+  MR.step_fun 0
+    (MS.mk_cfg [M.SStoreShared (M.EVal (M.VU64 0))
+      (M.EVal (M.VF32 0)) M.TyF32] MS.empty_env MS.empty_mem) = None /\
+  MR.step_fun 0
+    (MS.mk_cfg [M.SBarrierShared] MS.empty_env MS.empty_mem) = None.
+Proof. repeat split; reflexivity. Qed.
+
+Example trans_shared_events_ok :
+  TR.translate_trace
+    [(2%nat, M.EvLoadShared M.TyF32 0 (M.VF32 7));
+     (2%nat, M.EvStoreShared M.TyF32 1 (M.VF32 7));
+     (2%nat, M.EvBarrierShared)] =
+    [(2%nat, P.EvLoad P.space_shared P.sem_relaxed None P.MemF32 0 7);
+     (2%nat, P.EvStore P.space_shared P.sem_relaxed None P.MemF32 1 7);
+     (2%nat, P.EvBarrier P.scope_cta)].
+Proof. reflexivity. Qed.
+
 (* === Thread tags survive MIR-to-PTX translation === *)
 
 Example trans_load_store_ok :
@@ -85,7 +121,7 @@ Proof. reflexivity. Qed.
 
 Example trans_barrier_ok :
   TR.translate_trace (TR.tag_trace 7%nat trace_barrier) =
-    [(7%nat, P.EvBarrier P.scope_cta)].
+    [(7%nat, P.EvBarrier P.scope_sys)].
 Proof. reflexivity. Qed.
 
 Example trans_acqrel_ok :
@@ -108,7 +144,7 @@ Definition mu_saxpy_gen : MS.mem :=
   mem_of_pairs [(1000, M.VF32 42%Z); (2000, M.VF32 0%Z)].
 
 Definition trace_saxpy_gen : list M.event_mir :=
-  fst (MR.run 10 (MS.mk_cfg SG.prog env_saxpy_gen mu_saxpy_gen)).
+  fst (MR.run 0 10 (MS.mk_cfg SG.prog env_saxpy_gen mu_saxpy_gen)).
 
 Example saxpy_gen_events_ok :
   trace_saxpy_gen =
@@ -131,7 +167,7 @@ Definition mu_atomic_gen : MS.mem :=
   mem_of_pairs [(3000, M.VU32 0%Z); (4000, M.VU32 0%Z)].
 
 Definition trace_atomic_gen : list M.event_mir :=
-  fst (MR.run 10 (MS.mk_cfg AF.prog env_atomic_gen mu_atomic_gen)).
+  fst (MR.run 0 10 (MS.mk_cfg AF.prog env_atomic_gen mu_atomic_gen)).
 
 Example atomic_gen_events_ok :
   trace_atomic_gen =
@@ -181,18 +217,20 @@ Definition thread1 : MC.thread :=
     MS.empty_env.
 
 Definition concurrent_start : MC.machine :=
-  MC.mk_machine [thread0; thread1] MS.empty_mem [].
+  MC.mk_machine [thread0; thread1] MS.empty_mem MS.empty_mem [].
 
 Definition concurrent_after_thread0 : MC.machine :=
   MC.mk_machine
     [MC.mk_thread 0%nat [] MS.empty_env; thread1]
     (MS.mem_write MS.empty_mem 10 (M.VU32 1))
+    MS.empty_mem
     [(0%nat, M.EvStore M.TyU32 10 (M.VU32 1))].
 
 Definition concurrent_after_thread1 : MC.machine :=
   MC.mk_machine
     [thread0; MC.mk_thread 1%nat [] MS.empty_env]
     (MS.mem_write MS.empty_mem 20 (M.VU32 2))
+    MS.empty_mem
     [(1%nat, M.EvStore M.TyU32 20 (M.VU32 2))].
 
 Example concurrent_can_choose_thread0 :
@@ -217,6 +255,94 @@ Proof.
   apply MS.StepStore with (addr := 20) (v := M.VU32 2); reflexivity.
 Qed.
 
+(* === Machine-owned shared space is separate and its rules are live === *)
+
+Definition shared_thread : MC.thread :=
+  MC.mk_thread 2%nat
+    [M.SStoreShared (M.EVal (M.VU64 0)) (M.EVal (M.VF32 9)) M.TyF32;
+     M.SLoadShared "x" (M.EVal (M.VU64 0)) M.TyF32;
+     M.SBarrierShared]
+    MS.empty_env.
+
+Definition shared_machine_start : MC.machine :=
+  MC.mk_machine [shared_thread]
+    (MS.mem_write MS.empty_mem 0 (M.VF32 1)) MS.empty_mem [].
+
+Definition shared_machine_after_store : MC.machine :=
+  MC.mk_machine
+    [MC.mk_thread 2%nat
+      [M.SLoadShared "x" (M.EVal (M.VU64 0)) M.TyF32;
+       M.SBarrierShared] MS.empty_env]
+    (MS.mem_write MS.empty_mem 0 (M.VF32 1))
+    (MS.mem_write MS.empty_mem 0 (M.VF32 9))
+    [(2%nat, M.EvStoreShared M.TyF32 0 (M.VF32 9))].
+
+Definition shared_x_env : MS.env :=
+  MS.env_set MS.empty_env "x" (M.VF32 9).
+
+Definition shared_machine_after_load : MC.machine :=
+  MC.mk_machine
+    [MC.mk_thread 2%nat [M.SBarrierShared] shared_x_env]
+    (MS.mem_write MS.empty_mem 0 (M.VF32 1))
+    (MS.mem_write MS.empty_mem 0 (M.VF32 9))
+    [(2%nat, M.EvStoreShared M.TyF32 0 (M.VF32 9));
+     (2%nat, M.EvLoadShared M.TyF32 0 (M.VF32 9))].
+
+Definition shared_machine_done : MC.machine :=
+  MC.mk_machine [MC.mk_thread 2%nat [] shared_x_env]
+    (MS.mem_write MS.empty_mem 0 (M.VF32 1))
+    (MS.mem_write MS.empty_mem 0 (M.VF32 9))
+    [(2%nat, M.EvStoreShared M.TyF32 0 (M.VF32 9));
+     (2%nat, M.EvLoadShared M.TyF32 0 (M.VF32 9));
+     (2%nat, M.EvBarrierShared)].
+
+Example global_shared_same_address_do_not_alias :
+  MS.mem_read (MC.mach_mem shared_machine_after_store) 0 = Some (M.VF32 1) /\
+  MS.mem_read (MC.mach_shared shared_machine_after_store) 0 = Some (M.VF32 9).
+Proof. split; reflexivity. Qed.
+
+Example machine_shared_store_steps :
+  MC.machine_step shared_machine_start shared_machine_after_store.
+Proof.
+  unfold shared_machine_start, shared_machine_after_store, shared_thread.
+  eapply MC.MachineStoreShared with
+    (before := [])
+    (current := MC.mk_thread 2%nat
+      [M.SStoreShared (M.EVal (M.VU64 0))
+         (M.EVal (M.VF32 9)) M.TyF32;
+       M.SLoadShared "x" (M.EVal (M.VU64 0)) M.TyF32;
+       M.SBarrierShared] MS.empty_env)
+    (after := [])
+    (rest := [M.SLoadShared "x" (M.EVal (M.VU64 0)) M.TyF32;
+              M.SBarrierShared])
+    (ptr := M.EVal (M.VU64 0)) (rhs := M.EVal (M.VF32 9))
+    (ty := M.TyF32) (addr := 0) (value := M.VF32 9); reflexivity.
+Qed.
+
+Example machine_shared_load_steps :
+  MC.machine_step shared_machine_after_store shared_machine_after_load.
+Proof.
+  unfold shared_machine_after_store, shared_machine_after_load, shared_x_env.
+  eapply MC.MachineLoadShared with
+    (before := [])
+    (current := MC.mk_thread 2%nat
+      [M.SLoadShared "x" (M.EVal (M.VU64 0)) M.TyF32;
+       M.SBarrierShared] MS.empty_env)
+    (after := []) (rest := [M.SBarrierShared])
+    (dst := "x") (ptr := M.EVal (M.VU64 0)) (ty := M.TyF32)
+    (addr := 0) (value := M.VF32 9); reflexivity.
+Qed.
+
+Example machine_shared_barrier_steps :
+  MC.machine_step shared_machine_after_load shared_machine_done.
+Proof.
+  unfold shared_machine_after_load, shared_machine_done, shared_x_env.
+  eapply MC.MachineBarrierShared with
+    (before := [])
+    (current := MC.mk_thread 2%nat [M.SBarrierShared] shared_x_env)
+    (after := []) (rest := []). reflexivity.
+Qed.
+
 (* === Signed payload and scope regressions === *)
 
 Definition trace_i32 : list M.event_mir :=
@@ -228,7 +354,7 @@ Example trans_i32_ok :
 Proof. reflexivity. Qed.
 
 Goal True.
-  Fail unify (TR.translate_event M.EvBarrier) (P.EvBarrier P.scope_sys).
+  Fail unify (TR.translate_event M.EvBarrier) (P.EvBarrier P.scope_cta).
   Fail unify (TR.translate_trace (TR.tag_trace 0%nat trace_i32))
     [(0%nat, P.EvLoad P.space_global P.sem_relaxed None P.MemU32 5000 7)].
   exact I.

@@ -9,8 +9,10 @@ PTXHB.v
 Translate.v
 examples/saxpy_gen.v
 examples/atomic_flag_gen.v
+examples/reduction_gen.v
 MIRTests.v
 Soundness.v
 MP.v
 MPRealizable.v
 MPCandidates.v
+Reduction.v

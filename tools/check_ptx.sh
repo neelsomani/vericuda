@@ -59,8 +59,11 @@ SAXPY_COQ="$ROOT_DIR/coq/examples/saxpy_gen.v"
 ATOMIC_COQ="$ROOT_DIR/coq/examples/atomic_flag_gen.v"
 SAXPY_PTX="$ROOT_DIR/target/saxpy.ptx"
 ATOMIC_PTX="$ROOT_DIR/target/atomic_flag.ptx"
+REDUCTION_COQ="$ROOT_DIR/coq/examples/reduction_gen.v"
+REDUCTION_PTX="$ROOT_DIR/target/reduction.ptx"
 
-for required in "$SAXPY_COQ" "$ATOMIC_COQ" "$SAXPY_PTX" "$ATOMIC_PTX"; do
+for required in "$SAXPY_COQ" "$ATOMIC_COQ" "$REDUCTION_COQ" \
+  "$SAXPY_PTX" "$ATOMIC_PTX" "$REDUCTION_PTX"; do
   [[ -f "$required" ]] || fail "missing generated artifact: $required"
 done
 
@@ -90,5 +93,27 @@ require_function_count "$ATOMIC_PTX" 'acquire_release' \
 require_function_count "$ATOMIC_PTX" 'acquire_release' \
   '^[[:space:]]*st\.release\.sys\.u32[[:space:]]' 1 \
   "rustc PTX is missing st.release.sys.u32"
+
+# The extractor's --shared-param convention routes the raw-pointer accesses to
+# MIR shared events.  rustc itself still sees a generic pointer, so the actual
+# PTX loads/stores are generic ld.f32/st.f32, not ld.shared/st.shared.  The
+# inline model barrier does lower to bar.sync on this pinned backend.
+require_pattern "$REDUCTION_COQ" 'M\.SFor .* 3 ' \
+  "translated reduction is missing its fixed SFor"
+require_count "$REDUCTION_COQ" 'M\.SLoadShared .*M\.TyF32' 2 \
+  "translated reduction loop is missing shared f32 loads"
+require_count "$REDUCTION_COQ" 'M\.SStoreShared .*M\.TyF32' 2 \
+  "translated reduction is missing shared f32 stores"
+require_count "$REDUCTION_COQ" 'M\.SBarrierShared' 2 \
+  "translated reduction is missing shared barriers"
+require_function_count "$REDUCTION_PTX" 'reduction' \
+  '^[[:space:]]*bar\.sync[[:space:]]+0;' 4 \
+  "rustc PTX reduction is missing bar.sync rounds"
+require_function_count "$REDUCTION_PTX" 'reduction' \
+  '^[[:space:]]*ld\.f32[[:space:]]' 6 \
+  "rustc PTX reduction is missing generic-address f32 loads"
+require_function_count "$REDUCTION_PTX" 'reduction' \
+  '^[[:space:]]*st\.f32[[:space:]]' 3 \
+  "rustc PTX reduction is missing generic-address f32 stores"
 
 echo "[ptx-check] Coq event kinds match the memory-operation forms in emitted PTX"

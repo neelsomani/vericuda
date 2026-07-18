@@ -13,7 +13,11 @@ Module P  := PTX.
 Module RF := PTXRelations.
 
 Lemma barrier_ok :
-  T.translate_event M.EvBarrier = P.EvBarrier P.scope_cta.
+  T.translate_event M.EvBarrier = P.EvBarrier P.scope_sys.
+Proof. reflexivity. Qed.
+
+Lemma shared_barrier_ok :
+  T.translate_event M.EvBarrierShared = P.EvBarrier P.scope_cta.
 Proof. reflexivity. Qed.
 
 Lemma atomic_store_release_ok : forall ty addr v,
@@ -43,6 +47,14 @@ Definition translate_shape (m : M.event_mir) (p : P.event) : Prop :=
   | M.EvAtomicStoreRelease ty a v =>
       p = P.EvStore P.SpaceGlobal P.SemRelease (Some P.ScopeSYS) (T.mem_ty_of_mir ty) a (T.z_of_val v)
   | M.EvBarrier =>
+      p = P.EvBarrier P.ScopeSYS
+  | M.EvLoadShared ty a v =>
+      p = P.EvLoad P.SpaceShared P.SemRelaxed None
+          (T.mem_ty_of_mir ty) a (T.z_of_val v)
+  | M.EvStoreShared ty a v =>
+      p = P.EvStore P.SpaceShared P.SemRelaxed None
+          (T.mem_ty_of_mir ty) a (T.z_of_val v)
+  | M.EvBarrierShared =>
       p = P.EvBarrier P.ScopeCTA
   end.
 
@@ -70,11 +82,13 @@ Qed.
 
    That theorem is intentionally not imported here because it comes later in
    the dependency graph, and it is not a general compiler-soundness theorem.
-   The next major result remains the general reduction, which will require:
+   [Reduction.v] now proves a fixed-N, fixed-schedule shared-memory reduction
+   deterministic.  It too is intentionally not a general compiler theorem.
+   The next major result remains the general soundness reduction, which needs:
    1. Integrating the external PTX memory model's happens-before and coherence
       relations (the local [PTXHB] litmus layer is not that integration)
-   2. Generalizing the finite straight-line candidate machine to realistic MIR
-      control flow and schedules
+   2. Generalizing the finite candidate machine to realistic MIR control flow
+      and arbitrary schedules
    3. Proving that if a MIR trace is DRF under the MIR model, its translated
       PTX trace admits only executions consistent with the PTX model
 

@@ -51,7 +51,7 @@ Definition trace_flag_load_zero : list (nat * M.event_mir) :=
 
 Definition after_flag_load_zero : MC.machine :=
   MC.mk_machine [MR.done0; MR.done0; reader_after_flag_zero]
-    MR.mem_flag_one trace_flag_load_zero.
+    MR.mem_flag_one MS.empty_mem trace_flag_load_zero.
 
 Definition reader_done_zero_zero_env : MS.env :=
   MS.env_set reader_r1_zero_env "r2" (M.VU32 0).
@@ -76,17 +76,17 @@ Definition final_weak : MC.machine :=
   MC.mk_machine
     [MR.done0; MR.done0;
      MC.mk_thread 1%nat [] reader_done_one_zero_env]
-    MR.mem_flag_one trace_weak.
+    MR.mem_flag_one MS.empty_mem trace_weak.
 Definition final_flag0_data0 : MC.machine :=
   MC.mk_machine
     [MR.done0; MR.done0;
      MC.mk_thread 1%nat [] reader_done_zero_zero_env]
-    MR.mem_flag_one trace_flag0_data0.
+    MR.mem_flag_one MS.empty_mem trace_flag0_data0.
 Definition final_flag0_data1 : MC.machine :=
   MC.mk_machine
     [MR.done0; MR.done0;
      MC.mk_thread 1%nat [] reader_done_zero_one_env]
-    MR.mem_flag_one trace_flag0_data1.
+    MR.mem_flag_one MS.empty_mem trace_flag0_data1.
 
 Definition state0 : RM.relaxed_state :=
   RM.mk_relaxed_state MR.mp_initial_machine RM.empty_rf.
@@ -493,16 +493,15 @@ Ltac solve_fixed_nonload Hstep :=
     repeat match goal with
     | H : Some _ = Some _ |- _ => inversion H; clear H; subst
     end;
-  [ match goal with
-    | H : MS.step _ _ _ |- _ => inversion H; subst; cbn in *
-    end;
-      try discriminate;
-      repeat match goal with
-      | H : Some _ = Some _ |- _ => inversion H; clear H; subst
-      end;
-      reflexivity
-  | discriminate
-  | discriminate ].
+  try solve [contradiction | discriminate];
+  match goal with
+  | H : MS.step _ _ _ _ |- _ => inversion H; subst; cbn in *
+  end;
+  try discriminate;
+  repeat match goal with
+  | H : Some _ = Some _ |- _ => inversion H; clear H; subst
+  end;
+  reflexivity.
 
 Lemma step_from_state0 : forall next,
   RM.relaxed_machine_step state0 next -> next = state1.
@@ -554,14 +553,13 @@ Proof.
   inversion Hstep; subst; cbn in *;
     repeat match goal with
     | H : Some _ = Some _ |- _ => inversion H; clear H; subst
-    end.
-  - contradiction.
-  - cbn in H5. discriminate.
-  - cbn in H5. inversion H5; subst. cbn in H6. inversion H6; subst.
-    destruct (flag_sources_exact source_idx value H7)
-      as [[Hidx Hvalue] | [Hidx Hvalue]]; subst.
-    + right. reflexivity.
-    + left. reflexivity.
+    end;
+    try contradiction; try discriminate.
+  cbn in H6. inversion H6; subst. cbn in H7. inversion H7; subst.
+  destruct (flag_sources_exact source_idx value H8)
+    as [[Hidx Hvalue] | [Hidx Hvalue]]; subst.
+  - right. reflexivity.
+  - left. reflexivity.
 Qed.
 
 Lemma step_from_state5_release : forall next,
@@ -574,14 +572,13 @@ Proof.
   inversion Hstep; subst; cbn in *;
     repeat match goal with
     | H : Some _ = Some _ |- _ => inversion H; clear H; subst
-    end.
-  - contradiction.
-  - cbn in H5. inversion H5; subst. cbn in H6. inversion H6; subst.
-    destruct (data_sources_release_exact source_idx value H7)
-      as [[Hidx Hvalue] | [Hidx Hvalue]]; subst.
-    + right. reflexivity.
-    + left. reflexivity.
-  - cbn in H5. discriminate.
+    end;
+    try contradiction; try discriminate.
+  cbn in H6. inversion H6; subst. cbn in H7. inversion H7; subst.
+  destruct (data_sources_release_exact source_idx value H8)
+    as [[Hidx Hvalue] | [Hidx Hvalue]]; subst.
+  - right. reflexivity.
+  - left. reflexivity.
 Qed.
 
 Lemma step_from_state5_init : forall next,
@@ -594,14 +591,13 @@ Proof.
   inversion Hstep; subst; cbn in *;
     repeat match goal with
     | H : Some _ = Some _ |- _ => inversion H; clear H; subst
-    end.
-  - contradiction.
-  - cbn in H5. inversion H5; subst. cbn in H6. inversion H6; subst.
-    destruct (data_sources_init_exact source_idx value H7)
-      as [[Hidx Hvalue] | [Hidx Hvalue]]; subst.
-    + left. reflexivity.
-    + right. reflexivity.
-  - cbn in H5. discriminate.
+    end;
+    try contradiction; try discriminate.
+  cbn in H6. inversion H6; subst. cbn in H7. inversion H7; subst.
+  destruct (data_sources_init_exact source_idx value H8)
+    as [[Hidx Hvalue] | [Hidx Hvalue]]; subst.
+  - left. reflexivity.
+  - right. reflexivity.
 Qed.
 
 Lemma final_good_done : RM.all_done final_good.

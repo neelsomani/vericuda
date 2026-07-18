@@ -4,8 +4,8 @@ From Coq Require Import ZArith Bool.Bool.
 
     This file does not import or claim a connection to the formal PTX model of
     Lustig et al.  It is the deliberately small event layer used by this
-    artifact: global-memory events, acquire/release annotations, SYS/CTA scope
-    tags, and raw [Z] payloads. *)
+    artifact: global/shared-space tags, acquire/release annotations, SYS/CTA
+    scope tags, barriers, and raw [Z] payloads. *)
 Module PTX.
 
 Inductive space :=

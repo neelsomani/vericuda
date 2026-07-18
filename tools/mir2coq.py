@@ -2,16 +2,21 @@
 """Translate a restricted MIR dump into a Coq MIR program.
 
 The translator is intentionally small and pattern-driven.  It recognises the
-handful of MIR shapes exercised by the MVP kernels (`saxpy`,
-`atomic_flag::acquire_release`) and emits the corresponding Gallina terms under
-`MIRSyntax`.
+handful of MIR shapes exercised by the curated kernels (`saxpy`,
+`atomic_flag::acquire_release`, and the fixed reduction) and emits the
+corresponding Gallina terms under `MIRSyntax`.
 
 Input expectations
 ------------------
 - A single function MIR dump produced by `rustc -Z dump-mir`.
 - We only care about loads, stores, atomic acquire/release calls, pointer adds,
-  and the occasional barrier call.  Unsupported control flow is diagnosed and
-  omitted; unsupported values/types are rejected rather than guessed.
+  the fixed `0..3u32` counted-loop shape, and the occasional barrier call.
+  Unsupported control flow is diagnosed and omitted; unsupported values/types
+  are rejected rather than guessed.
+- `--shared-param _N` designates a rustc MIR parameter/local as a modeled
+  shared-space base.  Loads and stores through it or derived pointers become
+  shared constructors, and recognized model barriers become shared barriers.
+  This is an extraction convention, not a claim about Rust/CUDA semantics.
 
 Output
 ------
@@ -20,7 +25,7 @@ Output
 
 Limitations
 -----------
-- Regex-driven (no full parser); meant for the two curated kernels only.
+- Regex-driven (no full parser); meant for the curated kernels only.
 - Pointer/base addresses are left symbolic – consumers should provide the
   environment/memory when executing the program inside Coq.
 """
@@ -115,9 +120,11 @@ class LoadStmt(Stmt):
     dst: str
     addr: Expr
     ty: str
+    shared: bool = False
 
     def to_coq(self) -> str:
-        return f'M.SLoad "{self.dst}" ({self.addr.to_coq()}) M.{self.ty}'
+        ctor = "SLoadShared" if self.shared else "SLoad"
+        return f'M.{ctor} "{self.dst}" ({self.addr.to_coq()}) M.{self.ty}'
 
 
 @dataclasses.dataclass
@@ -125,9 +132,11 @@ class StoreStmt(Stmt):
     addr: Expr
     value: Expr
     ty: str
+    shared: bool = False
 
     def to_coq(self) -> str:
-        return f'M.SStore ({self.addr.to_coq()}) ({self.value.to_coq()}) M.{self.ty}'
+        ctor = "SStoreShared" if self.shared else "SStore"
+        return f'M.{ctor} ({self.addr.to_coq()}) ({self.value.to_coq()}) M.{self.ty}'
 
 
 @dataclasses.dataclass
@@ -156,8 +165,24 @@ class AtomicStoreStmt(Stmt):
 
 @dataclasses.dataclass
 class BarrierStmt(Stmt):
+    shared: bool = False
+
     def to_coq(self) -> str:
-        return "M.SBarrier"
+        return "M.SBarrierShared" if self.shared else "M.SBarrier"
+
+
+@dataclasses.dataclass
+class ForStmt(Stmt):
+    counter: str
+    bound: int
+    body: List[Stmt]
+
+    def to_coq(self) -> str:
+        rendered = ";\n        ".join(stmt.to_coq() for stmt in self.body)
+        return (
+            f'M.SFor "{self.counter}" {self.bound} '
+            f'[ {rendered} ]'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +208,12 @@ TYPE_ALIASES = {
 
 def classify_type(raw: str) -> TypeInfo:
     raw = raw.strip()
+
+    # Counted-loop iterator bookkeeping is control-only.  Recording it as
+    # non-payload data is safe because memory actions still require an exact
+    # supported scalar/pointer type below.
+    if "core::ops::Range<" in raw or "core::option::Option<" in raw:
+        return TypeInfo(kind="other", mir_ty=None)
 
     # References are treated like pointers for our purposes.
     if raw.startswith("&"):
@@ -252,7 +283,10 @@ RE_ATOMIC_LOAD = re.compile(
 RE_ATOMIC_STORE = re.compile(
     r"^\s*(?:{ident}\s*=\s*)?AtomicU\d+::store\((?P<args>.+)\)".format(ident=IDENT)
 )
-RE_BARRIER = re.compile(r"(?:\bbarrier|\bsyncthreads)\s*\(", re.IGNORECASE)
+RE_BARRIER = re.compile(
+    r"(?:\bbarrier|\bsyncthreads|\bmodel_barrier)\s*\(|bar\.sync",
+    re.IGNORECASE,
+)
 RE_BASIC_BLOCK = re.compile(r"^bb(?P<block>\d+):\s*\{")
 RE_GOTO = re.compile(r"^goto\s*->\s*bb(?P<target>\d+)\s*;")
 RE_SWITCH = re.compile(r"^switchInt\s*\(")
@@ -309,6 +343,8 @@ def parse_operand(token: str) -> Expr:
             if ctor is None:
                 raise TranslationError(f"unsupported integer constant: {token}")
             return Const(ctor=ctor, value=value)
+        if re.fullmatch(r"[-+]?(?:0+(?:\.0*)?|\.0+)f32", payload):
+            return Const(ctor="M.VF32", value="0")
         raise TranslationError(f"unsupported MIR constant: {token}")
 
     return Var(token)
@@ -403,8 +439,38 @@ def require_mir_type(
     return info.mir_ty
 
 
+def fixed_counted_loop_bound(lines: Sequence[str]) -> Optional[int]:
+    """Recognize the curated `0..CONST_u32` MIR loop plus a back-edge.
+
+    This intentionally does not claim general CFG reconstruction.  It only
+    recognizes the Range/Iterator shape emitted for the reduction fixture.
+    """
+
+    bound: Optional[int] = None
+    current_block: Optional[int] = None
+    has_back_edge = False
+    has_switch = False
+    range_pattern = re.compile(
+        r"Range::<u32>\s*\{\s*start:\s*const 0_u32,\s*"
+        r"end:\s*const (?P<bound>\d+)_u32\s*\}"
+    )
+    for raw in lines:
+        line = raw.split("//", 1)[0].strip()
+        m_range = range_pattern.search(line)
+        if m_range:
+            bound = int(m_range.group("bound"))
+        m_block = RE_BASIC_BLOCK.match(line)
+        if m_block:
+            current_block = int(m_block.group("block"))
+        m_goto = RE_GOTO.match(line)
+        if m_goto and current_block is not None:
+            has_back_edge |= int(m_goto.group("target")) <= current_block
+        has_switch |= bool(RE_SWITCH.match(line))
+    return bound if bound is not None and has_back_edge and has_switch else None
+
+
 def parse_statements(
-    lines: Sequence[str],
+    lines: Sequence[str], shared_params: Sequence[str] = (),
 ) -> Tuple[List[Stmt], Dict[str, Expr], Dict[str, str], List[str]]:
     types = collect_types(lines)
     ptr_targets = infer_pointer_targets(types)
@@ -413,6 +479,7 @@ def parse_statements(
     ordering_bindings: Dict[str, str] = {}
     diagnostics: List[str] = []
     current_block: Optional[int] = None
+    shared_ptrs = set(shared_params)
 
     for line_number, raw in enumerate(lines, start=1):
         # rustc appends comments such as `// scope N at ...` to statements.
@@ -470,6 +537,8 @@ def parse_statements(
                 derived_exprs[dst] = PtrAdd(base_expr, offset_expr)
                 if isinstance(base_expr, Var) and base_expr.name in ptr_targets:
                     ptr_targets[dst] = ptr_targets[base_expr.name]
+                if isinstance(base_expr, Var) and base_expr.name in shared_ptrs:
+                    shared_ptrs.add(dst)
             continue
 
         m_ref = RE_REF_DEREF.match(line)
@@ -479,6 +548,8 @@ def parse_statements(
             derived_exprs[dst] = Var(src)
             if src in ptr_targets:
                 ptr_targets[dst] = ptr_targets[src]
+            if src in shared_ptrs:
+                shared_ptrs.add(dst)
             continue
 
         m_load = RE_LOAD.match(line)
@@ -486,7 +557,12 @@ def parse_statements(
             dst = m_load.group("dst")
             ptr = m_load.group("ptr")
             mir_ty = require_mir_type(types, dst, "load destination")
-            stmts.append(LoadStmt(dst=dst, addr=expr_for_pointer(ptr, derived_exprs), ty=mir_ty))
+            stmts.append(LoadStmt(
+                dst=dst,
+                addr=expr_for_pointer(ptr, derived_exprs),
+                ty=mir_ty,
+                shared=ptr in shared_ptrs,
+            ))
             continue
 
         m_store = RE_STORE.match(line)
@@ -504,6 +580,7 @@ def parse_statements(
                     addr=addr_expr,
                     value=parse_expr(rhs.rstrip(";")),
                     ty=elem_ty,
+                    shared=ptr in shared_ptrs,
                 )
             )
             continue
@@ -546,7 +623,27 @@ def parse_statements(
             continue
 
         if RE_BARRIER.search(line):
-            stmts.append(BarrierStmt())
+            stmts.append(BarrierStmt(shared=bool(shared_params)))
+
+    loop_bound = fixed_counted_loop_bound(lines)
+    if loop_bound is not None:
+        first_barrier = next(
+            (idx for idx, stmt in enumerate(stmts)
+             if isinstance(stmt, BarrierStmt)),
+            None,
+        )
+        if first_barrier is not None and first_barrier + 1 < len(stmts):
+            prefix = stmts[: first_barrier + 1]
+            body = stmts[first_barrier + 1 :]
+            stmts = prefix + [ForStmt("_loop_counter", loop_bound, body)]
+            diagnostics = [
+                diagnostic for diagnostic in diagnostics
+                if "loop/back-edge" not in diagnostic
+            ]
+            diagnostics.append(
+                f"recognized curated 0..{loop_bound} counted loop; "
+                "branch structure inside the body remains pattern-driven"
+            )
 
     return stmts, derived_exprs, ptr_targets, diagnostics
 
@@ -605,6 +702,16 @@ def parse_args() -> argparse.Namespace:
         dest="module_name",
         help="Override Coq module name (defaults to capitalised output stem)",
     )
+    parser.add_argument(
+        "--shared-param",
+        action="append",
+        default=[],
+        metavar="MIR_LOCAL",
+        help=(
+            "Treat this rustc MIR pointer parameter/local (for example _1) "
+            "and derived pointers as modeled shared memory"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -616,7 +723,9 @@ def main() -> int:
 
     lines = args.input.read_text().splitlines()
     try:
-        stmts, _, _, diagnostics = parse_statements(lines)
+        stmts, _, _, diagnostics = parse_statements(
+            lines, shared_params=args.shared_param
+        )
     except TranslationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

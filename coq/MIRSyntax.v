@@ -28,9 +28,12 @@ Definition addr := Z.
 Inductive expr :=
 | EVal (v : val)
 | EVar (x : var)
+| ETid
 | EAdd (lhs rhs : expr)
 | EMul (lhs rhs : expr)
-| EPtrAdd (base ofs : expr).
+| EPtrAdd (base ofs : expr)
+| ELt (lhs rhs : expr)
+| EShr (lhs rhs : expr).
 
 Inductive stmt :=
 | SAssign (x : var) (rhs : expr)
@@ -39,14 +42,21 @@ Inductive stmt :=
 | SAtomicLoadAcquire (x : var) (ptr : expr) (ty : mir_ty)
 | SAtomicStoreRelease (ptr : expr) (rhs : expr) (ty : mir_ty)
 | SBarrier
+| SLoadShared (x : var) (ptr : expr) (ty : mir_ty)
+| SStoreShared (ptr : expr) (rhs : expr) (ty : mir_ty)
+| SBarrierShared
 | SIf (cond : expr) (then_branch else_branch : list stmt)
-| SSeq (body : list stmt).
+| SSeq (body : list stmt)
+| SFor (counter : var) (bound : Z) (body : list stmt).
 
 Inductive event_mir :=
 | EvLoad (ty : mir_ty) (addr : addr) (v : val)
 | EvStore (ty : mir_ty) (addr : addr) (v : val)
 | EvAtomicLoadAcquire (ty : mir_ty) (addr : addr) (v : val)
 | EvAtomicStoreRelease (ty : mir_ty) (addr : addr) (v : val)
-| EvBarrier.
+| EvBarrier
+| EvLoadShared (ty : mir_ty) (addr : addr) (v : val)
+| EvStoreShared (ty : mir_ty) (addr : addr) (v : val)
+| EvBarrierShared.
 
 End MIR.
