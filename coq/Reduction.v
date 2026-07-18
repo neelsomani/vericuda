@@ -7,6 +7,7 @@ Open Scope Z_scope.
 
 Require Import MIRSyntax MIRSemantics MIRRun MIRConcurrent MIRRelaxed.
 Require Import PTXEvents PTXRelations PTXHB Translate.
+Require Import reduction_gen.
 
 (** The fixed eight-thread tree reduction.
 
@@ -26,6 +27,7 @@ Module R := PTXRelations.
 Module H := PTXHB.
 Module T := Translate.
 Module P := PTX.
+Module RG := Reduction_gen.
 
 Definition nthreads : nat := 8%nat.
 Definition nrounds : Z := 3.
@@ -57,6 +59,66 @@ Definition reduction_thread (t : nat) : MC.thread :=
      M.SBarrierShared;
      M.SFor "s" nrounds reduction_round]
     MS.empty_env.
+
+(** A deliberately weak syntactic correspondence used to state the boundary
+    between the rustc-derived artifact and the program verified below.  It
+    preserves shared-memory action kinds and types, barrier placement, loop
+    bounds, and loop nesting.  It forgets pointer/value expressions and SSA
+    destination names, and [OutlineEraseRightGuard] records the one control
+    construct that the prototype extractor omits: an empty-else guard around
+    a sequence of actions.
+
+    This is not a semantic equivalence or a compiler-correctness relation. *)
+Inductive same_memory_outline : list M.stmt -> list M.stmt -> Prop :=
+| OutlineNil :
+    same_memory_outline [] []
+| OutlineLoadShared : forall lhs_dst lhs_ptr rhs_dst rhs_ptr ty lhs rhs,
+    same_memory_outline lhs rhs ->
+    same_memory_outline
+      (M.SLoadShared lhs_dst lhs_ptr ty :: lhs)
+      (M.SLoadShared rhs_dst rhs_ptr ty :: rhs)
+| OutlineStoreShared : forall lhs_ptr lhs_value rhs_ptr rhs_value ty lhs rhs,
+    same_memory_outline lhs rhs ->
+    same_memory_outline
+      (M.SStoreShared lhs_ptr lhs_value ty :: lhs)
+      (M.SStoreShared rhs_ptr rhs_value ty :: rhs)
+| OutlineBarrierShared : forall lhs rhs,
+    same_memory_outline lhs rhs ->
+    same_memory_outline
+      (M.SBarrierShared :: lhs)
+      (M.SBarrierShared :: rhs)
+| OutlineFor : forall lhs_counter rhs_counter bound lhs_body rhs_body lhs rhs,
+    same_memory_outline lhs_body rhs_body ->
+    same_memory_outline lhs rhs ->
+    same_memory_outline
+      (M.SFor lhs_counter bound lhs_body :: lhs)
+      (M.SFor rhs_counter bound rhs_body :: rhs)
+| OutlineEraseRightGuard : forall condition body lhs rhs,
+    same_memory_outline lhs (body ++ rhs) ->
+    same_memory_outline lhs (M.SIf condition body [] :: rhs).
+
+(** The extracted Rust program has the verified program's memory-action
+    outline.  In particular, this checks the initial store, four shared
+    barriers, three-round loop, and per-round load/load/store sequence. *)
+Lemma reduction_gen_matches_verified_outline : forall t,
+  same_memory_outline RG.prog (MC.th_code (reduction_thread t)).
+Proof.
+  intro t.
+  cbn [RG.prog reduction_thread reduction_round].
+  repeat constructor.
+Qed.
+
+(** The stronger equality one might hope for is false.  The extracted program
+    retains rustc SSA operands such as [_1], [_3], and [_6], and its loop body
+    omits the [tid < stride] conditional and the computations that produce the
+    stride/offset operands. *)
+Lemma reduction_gen_is_not_verified_program : forall t,
+  RG.prog <> MC.th_code (reduction_thread t).
+Proof.
+  intros t Heq.
+  cbn [RG.prog reduction_thread shared_ptr input_expr] in Heq.
+  discriminate Heq.
+Qed.
 
 (** Hand-written residual of the three-round static loop. *)
 Definition reduction_thread_unrolled (t : nat) : list M.stmt :=

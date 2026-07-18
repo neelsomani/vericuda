@@ -27,6 +27,12 @@ class TranslatorHardeningTests(unittest.TestCase):
         with self.assertRaisesRegex(mir2coq.TranslationError, "unsupported MIR constant"):
             mir2coq.parse_operand("const 1_u128")
 
+    def test_malformed_variable_operand_is_rejected(self) -> None:
+        with self.assertRaisesRegex(mir2coq.TranslationError, "unsupported MIR operand"):
+            mir2coq.parse_operand("_6)")
+        with self.assertRaisesRegex(mir2coq.TranslationError, "unsupported MIR operand"):
+            mir2coq.parse_operand("move _6)")
+
     def test_unknown_type_is_rejected(self) -> None:
         with self.assertRaisesRegex(mir2coq.TranslationError, "unsupported MIR type"):
             mir2coq.classify_type("ImaginaryGpuWord")
@@ -81,6 +87,26 @@ class TranslatorHardeningTests(unittest.TestCase):
         self.assertTrue(statements[1].shared)
         self.assertIn("SLoadShared", statements[0].to_coq())
         self.assertIn("SStoreShared", statements[1].to_coq())
+
+    def test_pointer_call_edges_do_not_leak_into_operands(self) -> None:
+        lines = [
+            "fn f(_1: *mut f32, _2: usize) -> () {",
+            "let _3: *mut f32;",
+            "let _4: f32;",
+            "_3 = core::ptr::mut_ptr::<impl *mut f32>::add(copy _1, move _2) "
+            "-> [return: bb1, unwind terminate(abi)];",
+            "_4 = copy (*_3);",
+            "}",
+        ]
+
+        statements, derived, _, _ = mir2coq.parse_statements(
+            lines, shared_params=["_1"]
+        )
+
+        self.assertEqual(derived["_3"].to_coq(),
+                         'M.EPtrAdd (M.EVar "_1") (M.EVar "_2")')
+        self.assertEqual(len(statements), 1)
+        self.assertNotIn('")"', statements[0].to_coq())
 
     def test_curated_fixed_loop_emits_sfor(self) -> None:
         lines = [

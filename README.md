@@ -14,7 +14,7 @@ This is not an end-to-end verifier and is not connected to the Coq PTX model of
 Lustig et al. The repository is an intermediate milestone toward that
 larger result.
 
-## Checked contributions
+## Results
 
 1. An executable small-step semantics for a Rust-like statement fragment with
    loads, stores, atomics, distinct global/shared barriers, structured
@@ -167,6 +167,20 @@ the determinism result is about uniqueness of the combining tree, not about
 floating-point arithmetic. `VF32` does not model IEEE-754 rounding, NaNs, or
 arithmetic.
 
+The program verified by the reduction theorems is the hand-written
+`Reduction.reduction_thread`, not the rustc-derived
+`examples/reduction_gen.v`. The connection is now explicit and deliberately
+limited: `reduction_gen_matches_verified_outline` proves that the two programs
+have the same typed shared-memory action outline, including barrier placement,
+the three-round loop, and each round's load/load/store sequence. That outline
+relation erases pointer/value operands and SSA destination names and flattens
+the `tid < stride` guard, because the prototype extractor does not reconstruct
+that branch or the MIR computations that feed its stride and offset operands.
+`reduction_gen_is_not_verified_program` proves that the extracted and verified
+MIR programs are not syntactically equal. Thus the extracted file is checked
+evidence that the memory-action shape occurs in rustc MIR; it is not yet a
+semantic refinement proof from the Rust kernel to the verified reduction.
+
 ## Repository map
 
 | Path | Role |
@@ -182,7 +196,8 @@ arithmetic.
 | `coq/MP.v` | Acquire/release forbidden and relaxed permitted MP theorems |
 | `coq/MPRealizable.v` | Explicit MIR-machine realization of `mp_trace_acqrel_good` |
 | `coq/MPCandidates.v` | Exhaustive MP candidate derivation, reachability, and consistency payoff |
-| `coq/Reduction.v` | Fixed eight-thread reduction, round structure, trace determinism, and unique result |
+| `coq/Reduction.v` | Fixed eight-thread reduction, determinism/result theorems, and the explicit boundary to extracted MIR |
+| `coq/examples/reduction_gen.v` | Rustc-derived reduction action outline; not proved semantically equivalent to `reduction_thread` |
 | `coq/Translate.v` | Thread-preserving MIR-event to PTX-event mapping |
 | `tools/mir2coq.py` | Curated MIR text extractor with `--shared-param` modeling convention |
 | `tools/check_ptx.sh` | Syntactic extracted-event/PTX validation |

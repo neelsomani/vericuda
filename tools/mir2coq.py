@@ -264,7 +264,7 @@ IDENT = r"_[0-9A-Za-z]+"
 RE_FUNC_HEADER = re.compile(r"^fn\s+\w+\((?P<args>.*)\)\s*->")
 RE_LET = re.compile(r"^\s*let(?: mut)?\s+(?P<name>{ident}):\s*(?P<ty>[^;]+);".format(ident=IDENT))
 RE_PTR_ADD = re.compile(
-    r"^\s*(?P<dst>{ident})\s*=\s*core::ptr::(?:mut_ptr|const_ptr)::.*::add\((?P<args>.+)\)".format(
+    r"^\s*(?P<dst>{ident})\s*=\s*core::ptr::(?:mut_ptr|const_ptr)::.*?::add\((?P<args>.*?)\)\s*(?:->.*)?;?$".format(
         ident=IDENT
     )
 )
@@ -320,8 +320,22 @@ def split_args(arg_str: str) -> List[str]:
 
 def parse_operand(token: str) -> Expr:
     token = token.strip()
-    if token.startswith("copy ") or token.startswith("move "):
-        return Var(token.split()[1])
+    m_var = re.fullmatch(rf"(?:copy|move)\s+(?P<name>{IDENT})", token)
+    if m_var:
+        return Var(m_var.group("name"))
+
+    # The curated reduction stores a u32 temporary after rustc's explicit
+    # integer-to-float cast.  MIRSyntax has no cast node, so the action
+    # extractor intentionally retains the source SSA operand.  Match only the
+    # exact cast forms we support rather than silently discarding arbitrary
+    # trailing text.
+    m_cast = re.fullmatch(
+        rf"(?:copy|move)\s+(?P<name>{IDENT})\s+as\s+"
+        r"(?:i32|u32|f32|u64|usize|isize)\s+\((?:IntToInt|IntToFloat)\)",
+        token,
+    )
+    if m_cast:
+        return Var(m_cast.group("name"))
 
     if token.startswith("const "):
         payload = token[len("const "):]
@@ -347,7 +361,9 @@ def parse_operand(token: str) -> Expr:
             return Const(ctor="M.VF32", value="0")
         raise TranslationError(f"unsupported MIR constant: {token}")
 
-    return Var(token)
+    if re.fullmatch(IDENT, token):
+        return Var(token)
+    raise TranslationError(f"unsupported MIR operand: {token}")
 
 
 def parse_expr(src: str) -> Expr:
