@@ -8,6 +8,11 @@ The verified Coq kernel is an 8-element model of the tree kernel's
 synchronization structure. This benchmark demonstrates the phenomenon the
 theorem is about; it is not a verified binary.
 
+The recorded canonical run is in
+[`bench/results/b200-sm100-paper-run/`](results/b200-sm100-paper-run/): on an
+NVIDIA B200 it produced 965 distinct atomic result patterns versus one fixed
+tree pattern, from Git commit `0646418`.
+
 ## One-command run
 
 On an NVIDIA CUDA machine, run this from the repository root, replacing

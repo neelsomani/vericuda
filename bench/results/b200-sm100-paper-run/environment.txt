@@ -1,0 +1,38 @@
+UTC timestamp: 20260718T192403Z
+Repository: /workspace/vericuda
+Git commit: 06464184286a2965f128e7c147abb490945edf98
+CUDA architecture: sm_100
+CUDA_VISIBLE_DEVICES: <unset; CUDA default device>
+
+$ nvidia-smi
+Sat Jul 18 19:24:03 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.126.20             Driver Version: 580.126.20     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA B200                    On  |   00000000:13:00.0 Off |                    0 |
+| N/A   35C    P0            143W / 1000W |       0MiB / 183359MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+$ nvidia-smi --query-gpu=name,uuid,driver_version --format=csv
+name, uuid, driver_version
+NVIDIA B200, GPU-79a1f1e0-0861-75b9-f0d7-f06c1f0fd673, 580.126.20
+
+$ nvcc --version
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2025 NVIDIA Corporation
+Built on Fri_Feb_21_20:23:50_PST_2025
+Cuda compilation tools, release 12.8, V12.8.93
+Build cuda_12.8.r12.8/compiler.35583870_0

@@ -1,0 +1,4 @@
+$ nvcc -std=c++17 -O3 -arch=sm_100 /workspace/vericuda/bench/atomic_reduce.cu -o /workspace/vericuda/bench/results/b200-sm100-paper-run/atomic_reduce
+$ nvcc -std=c++17 -O3 -arch=sm_100 /workspace/vericuda/bench/tree_reduce.cu -o /workspace/vericuda/bench/results/b200-sm100-paper-run/tree_reduce
+$ /workspace/vericuda/bench/results/b200-sm100-paper-run/atomic_reduce --csv /workspace/vericuda/bench/results/b200-sm100-paper-run/atomic_histogram.csv
+$ /workspace/vericuda/bench/results/b200-sm100-paper-run/tree_reduce --csv /workspace/vericuda/bench/results/b200-sm100-paper-run/tree_histogram.csv

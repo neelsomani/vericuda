@@ -16,7 +16,9 @@ debug
 target
 /bench/atomic_reduce
 /bench/tree_reduce
-/bench/results/
+# compiled bench binaries (rebuilt from .cu via commands.txt)
+bench/results/**/atomic_reduce
+bench/results/**/tree_reduce
 
 # Generated docs
 *.pdf
