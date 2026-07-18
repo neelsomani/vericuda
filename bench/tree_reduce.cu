@@ -30,7 +30,15 @@ __global__ void fixed_tree_reduce(const float* input, float* result, int count) 
   if (threadIdx.x == 0) *result = partial[0];
 }
 
-int main() {
+int main(int argc, char** argv) {
+  const char* csv_path = nullptr;
+  if (argc == 3 && std::strcmp(argv[1], "--csv") == 0) {
+    csv_path = argv[2];
+  } else if (argc != 1) {
+    std::fprintf(stderr, "usage: %s [--csv output.csv]\n", argv[0]);
+    return 2;
+  }
+
   constexpr int count = 1 << 20;
   constexpr int runs = 1000;
   std::vector<float> host(count);
@@ -55,11 +63,29 @@ int main() {
     std::uint32_t bits = 0;
     std::memcpy(&bits, &result, sizeof(bits));
     if (run == 0) expected = bits;
-    assert(bits == expected && "fixed tree changed its result bit pattern");
+    if (bits != expected) {
+      std::fprintf(stderr,
+                   "fixed tree changed result at run %d: expected 0x%08x, "
+                   "observed 0x%08x\n",
+                   run, expected, bits);
+      assert(bits == expected && "fixed tree changed its result bit pattern");
+      return 1;
+    }
   }
 
   std::printf("fixed tree: one result bit pattern in %d runs: 0x%08x\n",
               runs, expected);
+
+  if (csv_path != nullptr) {
+    std::FILE* csv = std::fopen(csv_path, "w");
+    if (csv == nullptr) {
+      std::perror(csv_path);
+      return 1;
+    }
+    std::fprintf(csv, "bits,count\n0x%08x,%d\n", expected, runs);
+    std::fclose(csv);
+  }
+
   cudaFree(device_result);
   cudaFree(device_input);
   return 0;

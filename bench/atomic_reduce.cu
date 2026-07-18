@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <set>
+#include <map>
 #include <vector>
 
 #define CUDA_OK(call) do { \
@@ -20,7 +20,15 @@ __global__ void atomic_reduce(const float* input, float* result, int count) {
   if (index < count) atomicAdd(result, input[index]);
 }
 
-int main() {
+int main(int argc, char** argv) {
+  const char* csv_path = nullptr;
+  if (argc == 3 && std::strcmp(argv[1], "--csv") == 0) {
+    csv_path = argv[2];
+  } else if (argc != 1) {
+    std::fprintf(stderr, "usage: %s [--csv output.csv]\n", argv[0]);
+    return 2;
+  }
+
   constexpr int count = 1 << 20;
   constexpr int runs = 1000;
   std::vector<float> host(count);
@@ -35,7 +43,7 @@ int main() {
   CUDA_OK(cudaMemcpy(device_input, host.data(), count * sizeof(float),
                      cudaMemcpyHostToDevice));
 
-  std::set<std::uint32_t> patterns;
+  std::map<std::uint32_t, int> histogram;
   for (int run = 0; run < runs; ++run) {
     CUDA_OK(cudaMemset(device_result, 0, sizeof(float)));
     atomic_reduce<<<(count + 255) / 256, 256>>>(device_input, device_result,
@@ -46,12 +54,28 @@ int main() {
                        cudaMemcpyDeviceToHost));
     std::uint32_t bits = 0;
     std::memcpy(&bits, &result, sizeof(bits));
-    patterns.insert(bits);
+    ++histogram[bits];
   }
 
   std::printf("atomicAdd: %zu distinct result bit patterns in %d runs\n",
-              patterns.size(), runs);
-  for (std::uint32_t bits : patterns) std::printf("0x%08x\n", bits);
+              histogram.size(), runs);
+  for (const auto& [bits, frequency] : histogram) {
+    std::printf("0x%08x,%d\n", bits, frequency);
+  }
+
+  if (csv_path != nullptr) {
+    std::FILE* csv = std::fopen(csv_path, "w");
+    if (csv == nullptr) {
+      std::perror(csv_path);
+      return 1;
+    }
+    std::fprintf(csv, "bits,count\n");
+    for (const auto& [bits, frequency] : histogram) {
+      std::fprintf(csv, "0x%08x,%d\n", bits, frequency);
+    }
+    std::fclose(csv);
+  }
+
   cudaFree(device_result);
   cudaFree(device_input);
   return 0;
