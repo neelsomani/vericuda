@@ -20,7 +20,8 @@ larger result.
    traces contain `(thread-id, event)` pairs, plus a PTX-style layer with
    candidate reads-from, program order, release/acquire synchronization,
    happens-before, and a small consistency predicate.
-3. Mechanized message-passing results in `coq/MP.v`:
+3. Mechanized message-passing results across `coq/MP.v`,
+   `coq/MPRealizable.v`, and `coq/MPCandidates.v`:
 
    ```coq
    Theorem mp_acqrel_forbids_weak : forall rfc,
@@ -35,6 +36,20 @@ larger result.
      machine_steps mp_initial_machine m /\
      mach_threads_all_done m /\
      Translate.translate_trace (mach_trace m) = mp_trace_acqrel_good.
+
+   Theorem mp_candidates_exact : forall final rf,
+     relaxed_machine_steps mp_initial_machine final rf ->
+     all_done final ->
+     rf 4 = Some 3 ->
+     Translate.translate_trace (mach_trace final) = mp_trace_acqrel_good \/
+     Translate.translate_trace (mach_trace final) = mp_trace_acqrel_weak.
+
+   Theorem mp_consistent_execution_good : forall final rf,
+     relaxed_machine_steps mp_initial_machine final rf ->
+     all_done final ->
+     rf 4 = Some 3 ->
+     consistent (Translate.translate_trace (mach_trace final)) rf ->
+     Translate.translate_trace (mach_trace final) = mp_trace_acqrel_good.
    ```
 
 4. A regex-driven prototype that extracts memory actions from `rustc -Z
@@ -77,6 +92,19 @@ trace and `mp_trace_acqrel_weak` contain the same program actions, while
 and differ only in the data-load value at index 5. The weak candidate is the
 trace rejected by `mp_acqrel_forbids_weak`.
 
+`MIRRelaxed` adds a finite candidate-execution machine for straight-line
+programs. Its canonical scheduler fixes event order, while each load may select
+any earlier same-address, same-type store and records that choice in a
+reads-from map. `MPCandidates.mp_candidates_all` derives all four raw completed
+MP candidates (`flag/data` values `0/0`, `0/1`, `1/0`, and `1/1`). Conditioning
+the acquire on the release edge (`rf 4 = Some 3`) leaves exactly the good and
+weak candidates; both are explicitly reachable. The consistency payoff theorem
+then rules out the weak one and returns the good trace.
+`mp_unconditioned_two_candidate_statement_false` formally proves why that
+handoff premise cannot be omitted. `mp_sc_is_relaxed_latest_special_case`
+connects the ordinary execution to the relaxed path that selects the latest
+matching flag and data stores.
+
 ## Repository map
 
 | Path | Role |
@@ -85,11 +113,13 @@ trace rejected by `mp_acqrel_forbids_weak`.
 | `coq/MIRSemantics.v` | Per-thread inductive semantics |
 | `coq/MIRRun.v` | Executable interpreter and step agreement proofs |
 | `coq/MIRConcurrent.v` | Nondeterministic interleaving over one common memory |
+| `coq/MIRRelaxed.v` | Finite straight-line candidate machine with recorded reads-from choices |
 | `coq/PTXEvents.v` | Hand-written PTX-style events; no external model import |
 | `coq/PTXRelations.v` | Tagged trace accessors and candidate reads-from edges |
 | `coq/PTXHB.v` | `po`, `sw`, `hb`, reads-from well-formedness, consistency |
 | `coq/MP.v` | Acquire/release forbidden and relaxed permitted MP theorems |
 | `coq/MPRealizable.v` | Explicit MIR-machine realization of `mp_trace_acqrel_good` |
+| `coq/MPCandidates.v` | Exhaustive MP candidate derivation, reachability, and consistency payoff |
 | `coq/Translate.v` | Thread-preserving MIR-event to PTX-event mapping |
 | `tools/mir2coq.py` | Curated MIR text extractor |
 | `tools/check_ptx.sh` | Syntactic extracted-event/PTX validation |
@@ -128,8 +158,9 @@ This command:
 3. runs translator hardening tests and validates rejection of the deliberately
    unsupported relaxed atomic example;
 4. freshly emits PTX and runs `tools/check_ptx.sh`;
-5. type-checks all Coq definitions, regressions, the MP theorems, and the
-   acquire/release realizability proof.
+5. type-checks all Coq definitions, regressions, the MP theorems, both relaxed
+   candidate reachability proofs, exhaustive classification, and consistency
+   payoff theorem.
 
 The extractor prints warnings for omitted control flow. In particular, SAXPY's
 loop and branch structure are not translated: `saxpy_gen.v` contains one
@@ -159,11 +190,10 @@ equal the straight-line extracted trace.
 - The emitted-PTX comparison is a syntactic validation, not a proof of compiler
   correctness or event correspondence.
 - The message-passing result is a litmus-test theorem, not the general
-  Rust-to-PTX soundness theorem. The MIR machine is sequentially consistent:
-  its loads read current memory, so the explicit schedule emits only
-  `mp_trace_acqrel_good`. `mp_trace_acqrel_weak` is a same-program axiomatic
-  candidate rejected by consistency, not a machine execution. The relaxed weak
-  trace is also model-level because the MIR fragment has no relaxed atomic
-  syntax. Deriving the candidate-execution space from the operational machine,
-  or otherwise proving axiomatic/operational correspondence, remains future
-  work.
+  Rust-to-PTX soundness theorem. The ordinary MIR machine remains sequentially
+  consistent and emits only `mp_trace_acqrel_good`. The separate relaxed
+  candidate machine derives the finite space only for this canonical,
+  straight-line schedule; arbitrary interleavings, loops, general programs,
+  and a full axiomatic/operational correspondence remain future work. The
+  relaxed-atomic litmus still remains model-level because the MIR fragment has
+  no relaxed atomic statement syntax.

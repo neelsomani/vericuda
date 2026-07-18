@@ -21,9 +21,10 @@ Require Import MIRSyntax MIRSemantics MIRConcurrent Translate MP.
 
     Likewise, [MP.mp_trace_relaxed] is not claimed to be a MIR execution.  The
     MIR syntax has acquire-load and release-store atomic statements but no
-    relaxed atomic statements.  The artifact does not derive its axiomatic
-    candidate traces from this operational machine; proving such a
-    correspondence is future work. *)
+    relaxed atomic statements.  The companion [MIRRelaxed]/[MPCandidates]
+    development derives the finite acquire/release MP candidate space using
+    nondeterministic reads-from choices; this file remains the ordinary
+    current-memory execution. *)
 Module MPRealizable.
 
 Module M := MIR.

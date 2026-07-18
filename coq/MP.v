@@ -48,6 +48,26 @@ Definition mp_actions_acqrel_weak : R.trace :=
   ; (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 0)
   ].
 
+(** Additional candidates admitted before conditioning on the acquire load
+    observing the release store. *)
+Definition mp_actions_acqrel_flag0_data0 : R.trace :=
+  [ (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
+  ; (0%nat, P.EvStore P.SpaceGlobal P.SemRelease
+                      (Some P.ScopeSYS) P.MemU32 flag_addr 1)
+  ; (1%nat, P.EvLoad P.SpaceGlobal P.SemAcquire
+                     (Some P.ScopeSYS) P.MemU32 flag_addr 0)
+  ; (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 0)
+  ].
+
+Definition mp_actions_acqrel_flag0_data1 : R.trace :=
+  [ (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
+  ; (0%nat, P.EvStore P.SpaceGlobal P.SemRelease
+                      (Some P.ScopeSYS) P.MemU32 flag_addr 1)
+  ; (1%nat, P.EvLoad P.SpaceGlobal P.SemAcquire
+                     (Some P.ScopeSYS) P.MemU32 flag_addr 0)
+  ; (1%nat, P.EvLoad P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
+  ].
+
 Definition mp_actions_relaxed : R.trace :=
   [ (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 data_addr 1)
   ; (0%nat, P.EvStore P.SpaceGlobal P.SemRelaxed None P.MemU32 flag_addr 1)
@@ -60,6 +80,12 @@ Definition mp_trace_acqrel_good : R.trace :=
 
 Definition mp_trace_acqrel_weak : R.trace :=
   mp_initialization ++ mp_actions_acqrel_weak.
+
+Definition mp_trace_acqrel_flag0_data0 : R.trace :=
+  mp_initialization ++ mp_actions_acqrel_flag0_data0.
+
+Definition mp_trace_acqrel_flag0_data1 : R.trace :=
+  mp_initialization ++ mp_actions_acqrel_flag0_data1.
 
 Definition mp_trace_relaxed : R.trace :=
   mp_initialization ++ mp_actions_relaxed.

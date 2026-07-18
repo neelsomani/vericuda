@@ -60,15 +60,25 @@ Proof.
   destruct e; cbn; reflexivity.
 Qed.
 
-(* TODO: The next major result should be a semantic soundness theorem connecting
-   MIR executions to PTX memory model guarantees. This will require:
+(* Status and next soundness boundary:
+
+   [MIRRelaxed] and [MPCandidates] now provide a semantic result for the fixed,
+   straight-line MP litmus.  They derive its finite reads-from candidate space
+   from relaxed machine steps, prove both handoff candidates reachable, prove
+   that the release-read condition leaves exactly the good and weak traces,
+   and use [PTXHB.consistent] to eliminate the weak trace.
+
+   That theorem is intentionally not imported here because it comes later in
+   the dependency graph, and it is not a general compiler-soundness theorem.
+   The next major result remains the general reduction, which will require:
    1. Integrating the external PTX memory model's happens-before and coherence
       relations (the local [PTXHB] litmus layer is not that integration)
-   2. Defining a MIR memory model with acquire/release semantics
+   2. Generalizing the finite straight-line candidate machine to realistic MIR
+      control flow and schedules
    3. Proving that if a MIR trace is DRF under the MIR model, its translated
       PTX trace admits only executions consistent with the PTX model
 
-   The translate_trace_shape lemma above is a useful regression check for this
-   mapping, but is definitionally true and is not itself a semantic result. *)
+   The [translate_trace_shape] lemma above is still only a regression check for
+   the mapping; the MP payoff theorem is in [MPCandidates]. *)
 
 End Soundness.

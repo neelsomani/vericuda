@@ -2,6 +2,7 @@ MIRSyntax.v
 MIRSemantics.v
 MIRRun.v
 MIRConcurrent.v
+MIRRelaxed.v
 PTXEvents.v
 PTXRelations.v
 PTXHB.v
@@ -12,3 +13,4 @@ MIRTests.v
 Soundness.v
 MP.v
 MPRealizable.v
+MPCandidates.v
